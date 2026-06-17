@@ -72,3 +72,34 @@ def generate_opaque_token() -> str:
 def hash_opaque_token(token: str) -> str:
     """Hash an opaque token using SHA-256 for secure database storage."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+def create_mfa_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
+    """Generate a short-lived (5 min) MFA challenge token."""
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=settings.MFA_TOKEN_EXPIRE_MINUTES)
+    
+    payload = {
+        "sub": str(user_id),
+        "tenant_id": str(tenant_id),
+        "type": "mfa_challenge",
+        "iss": settings.APP_NAME,
+        "iat": int(now.timestamp()),
+        "exp": int(expire.timestamp()),
+    }
+    
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+def verify_mfa_token(token: str) -> dict | None:
+    """Verify and decode a short-lived MFA challenge token."""
+    try:
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM],
+            issuer=settings.APP_NAME
+        )
+        if payload.get("type") != "mfa_challenge":
+            return None
+        return payload
+    except (jwt.PyJWTError, ValueError):
+        return None
