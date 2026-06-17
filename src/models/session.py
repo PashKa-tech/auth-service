@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import String, Boolean, DateTime, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from src.database import Base
@@ -13,7 +13,7 @@ class Session(Base):
     user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
     device_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True) # SHA-256 hash
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     # Composite Index for checking active sessions of a user

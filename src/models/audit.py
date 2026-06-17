@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import String, DateTime, ForeignKey, Index, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from src.database import Base
@@ -15,7 +15,7 @@ class AuditLog(Base):
     user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
     device_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True) # Maps to JSONB in PG, JSON text in SQLite
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), index=True)
 
     # Composite index for filtering logs by tenant and ordering by time
     __table_args__ = (

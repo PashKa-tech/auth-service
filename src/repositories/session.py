@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import select, update
 from src.models.session import Session
 from src.models.user import User
@@ -49,7 +49,7 @@ class SessionRepository(TenantScopedRepository):
                 Session.user_id == user_id,
                 User.tenant_id == self.tenant_id,
                 Session.is_revoked == False,
-                Session.expires_at > datetime.utcnow()
+                Session.expires_at > datetime.now(timezone.utc).replace(tzinfo=None)
             )
         )
         return list(result.scalars().all())

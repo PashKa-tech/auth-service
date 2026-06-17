@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import String, DateTime, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from src.database import Base
@@ -12,7 +12,7 @@ class OAuthAccount(Base):
     provider: Mapped[str] = mapped_column(String(50), nullable=False) # e.g. "google", "github"
     provider_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     provider_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    linked_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    linked_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Indexes and Unique Constraints
     __table_args__ = (
