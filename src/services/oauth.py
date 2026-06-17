@@ -156,14 +156,16 @@ class OAuthService:
         provider: str,
         provider_user_id: str,
         email: str,
-        auth_service: AuthService
+        auth_service: AuthService,
+        current_user: User | None = None
     ) -> User:
         """
         Account Linking Strategy:
         1. Find linked account by (provider, provider_user_id)
-        2. If not found, resolve by email.
-        3. If user exists with same email, link OAuth account.
-        4. If user doesn't exist, register a new password-less User and link.
+        2. If logged in (current_user), link this OAuth account to current user (if not already claimed).
+        3. If not logged in, resolve by email.
+        4. If user exists with same email, link OAuth account.
+        5. If user doesn't exist, register a new password-less User and link.
         """
         # 1. Look up OAuth account link
         link = await self.oauth_repo.get_by_provider_id(provider, provider_user_id)
@@ -174,9 +176,31 @@ class OAuthService:
                 raise ValueError("User associated with OAuth link not found")
             if not user.is_active:
                 raise ValueError("User account is deactivated")
+            
+            # Security guard: if logged in and it belongs to someone else
+            if current_user and current_user.id != user.id:
+                raise ValueError("This OAuth account is already linked to another user")
+                
             return user
 
-        # 2. Look up user by email in this tenant
+        # 2. If user is currently logged in, link to current user
+        if current_user:
+            await self.oauth_repo.create(
+                user_id=current_user.id,
+                provider=provider,
+                provider_user_id=provider_user_id,
+                provider_email=email
+            )
+            logger.info(f"Linked active user {current_user.id} with OAuth provider {provider}")
+            
+            await auth_service.audit_repo.create(
+                action="account_linked",
+                user_id=current_user.id,
+                metadata_json={"provider": provider, "provider_user_id": provider_user_id}
+            )
+            return current_user
+
+        # 3. Resolve by email in this tenant
         user = await auth_service.user_repo.get_by_email(email)
         
         if user:
@@ -193,7 +217,7 @@ class OAuthService:
             )
             logger.info(f"Linked existing user {user.id} with OAuth provider {provider}")
         else:
-            # 3. User does not exist, create a new user (verified, password-less)
+            # 4. User does not exist, create a new user (verified, password-less)
             user = await auth_service.user_repo.create(
                 email=email,
                 password_hash=None, # OAuth-only users do not have local passwords

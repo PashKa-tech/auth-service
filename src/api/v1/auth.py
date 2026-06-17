@@ -7,6 +7,7 @@ from src.api.deps import get_auth_service, get_current_user, resolve_tenant, get
 from src.services.auth import AuthService
 from src.services.oauth import OAuthService
 from src.models.user import User
+from src.config import settings
 from fastapi.responses import RedirectResponse
 from src.core.rate_limit import is_rate_limited
 from src.core.logging import logger
@@ -301,6 +302,23 @@ async def oauth_callback(
 ):
     """Handle OAuth provider callback, resolve user and issue session/tokens."""
     try:
+        # Check if user is already authenticated
+        current_user = None
+        token = request.cookies.get("access_token")
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+        if token:
+            from src.core.security import verify_access_token
+            payload = verify_access_token(token)
+            if payload:
+                user_id_str = payload.get("sub")
+                if user_id_str:
+                    try:
+                        current_user = await auth_service.user_repo.get_by_id(uuid.UUID(user_id_str))
+                    except ValueError:
+                        pass
+
         # 1. Fetch profile information from Google/GitHub
         user_info = await oauth_service.get_user_info_from_provider(provider, code)
         
@@ -309,7 +327,8 @@ async def oauth_callback(
             provider=provider,
             provider_user_id=user_info["provider_user_id"],
             email=user_info["email"],
-            auth_service=auth_service
+            auth_service=auth_service,
+            current_user=current_user
         )
         
         # 3. Authenticate user by creating Session (mimics AuthService.login_user)
@@ -382,8 +401,9 @@ async def oauth_callback(
                 # For MVP we allow anything, in prod we would restrict to whitelisted domains
                 redirect_url = state
                 
-            set_auth_cookies(response, access_token, raw_refresh)
-            return RedirectResponse(url=redirect_url)
+            redirect_resp = RedirectResponse(url=redirect_url)
+            set_auth_cookies(redirect_resp, access_token, raw_refresh)
+            return redirect_resp
 
     except ValueError as e:
         logger.error(f"OAuth callback resolution failed: {str(e)}")
