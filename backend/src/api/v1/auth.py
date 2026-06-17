@@ -1059,4 +1059,93 @@ async def oauth_token_exchange(
             }
         )
 
+@router.get("/admin/users", response_model=UnifiedResponse)
+async def admin_list_users(
+    limit: int = 50,
+    offset: int = 0,
+    current_user: User = Depends(RoleChecker(["admin"])),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """List all users in the tenant (admin-only)."""
+    users = await auth_service.user_repo.list_all(limit=limit, offset=offset)
+    data = [
+        {
+            "id": str(u.id),
+            "email": u.email,
+            "role": u.role,
+            "is_active": u.is_active,
+            "is_verified": u.is_verified,
+            "two_factor_enabled": u.is_two_factor_enabled
+        }
+        for u in users
+    ]
+    return UnifiedResponse(success=True, data=data)
+
+@router.get("/admin/audit-logs", response_model=UnifiedResponse)
+async def admin_list_audit_logs(
+    limit: int = 50,
+    offset: int = 0,
+    current_user: User = Depends(RoleChecker(["admin"])),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """List all audit logs in the tenant (admin-only)."""
+    logs = await auth_service.audit_repo.list_by_tenant(limit=limit, offset=offset)
+    data = [
+        {
+            "id": str(l.id),
+            "action": l.action,
+            "user_id": str(l.user_id) if l.user_id else None,
+            "ip_address": l.ip_address,
+            "user_agent": l.user_agent,
+            "timestamp": l.timestamp.isoformat() + "Z",
+            "metadata": l.metadata_json
+        }
+        for l in logs
+    ]
+    return UnifiedResponse(success=True, data=data)
+
+@router.get("/admin/stats", response_model=UnifiedResponse)
+async def admin_stats(
+    current_user: User = Depends(RoleChecker(["admin"])),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Get high-level stats for the admin dashboard (admin-only)."""
+    from sqlalchemy import func, select
+    from src.models.session import Session
+    from src.models.user import User
+    from src.models.audit import AuditLog
+    from datetime import datetime, timezone
+
+    # 1. Total users
+    users_count_res = await auth_service.db.execute(
+        select(func.count(User.id)).where(User.tenant_id == auth_service.tenant_id)
+    )
+    users_count = users_count_res.scalar() or 0
+
+    # 2. Total active sessions
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    sessions_count_res = await auth_service.db.execute(
+        select(func.count(Session.id))
+        .join(User, Session.user_id == User.id)
+        .where(User.tenant_id == auth_service.tenant_id, Session.expires_at > now)
+    )
+    sessions_count = sessions_count_res.scalar() or 0
+
+    # 3. Total suspicious location logins (anomalies)
+    anomaly_count_res = await auth_service.db.execute(
+        select(func.count(AuditLog.id))
+        .where(AuditLog.tenant_id == auth_service.tenant_id, AuditLog.action == "suspicious_login_location")
+    )
+    anomaly_count = anomaly_count_res.scalar() or 0
+
+    return UnifiedResponse(
+        success=True,
+        data={
+            "users_count": users_count,
+            "sessions_count": sessions_count,
+            "anomaly_count": anomaly_count
+        }
+    )
+
+
 

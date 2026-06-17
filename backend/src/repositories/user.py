@@ -36,3 +36,14 @@ class UserRepository(TenantScopedRepository):
         self.db.add(user)
         await self.db.flush()
         return user
+
+    async def list_all(self, limit: int = 50, offset: int = 0) -> list[User]:
+        result = await self.db.execute(
+            select(User)
+            .where(User.tenant_id == self.tenant_id)
+            .order_by(User.email.asc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(result.scalars().all())
+
