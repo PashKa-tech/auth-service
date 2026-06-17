@@ -172,6 +172,19 @@ async def resolve_tenant(
         except Exception:
             pass
 
+    if not tenant_id and request.query_params.get("state") and "/oauth/" in request.url.path and "/callback" in request.url.path:
+        try:
+            state_param = request.query_params.get("state")
+            from src.core.redis import init_redis
+            import json
+            redis_client = await init_redis()
+            state_data_json = await redis_client.get(f"oauth_state:{state_param}")
+            if state_data_json:
+                state_data = json.loads(state_data_json)
+                tenant_id = uuid.UUID(state_data["tenant_id"])
+        except Exception:
+            pass
+
     if not tenant_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

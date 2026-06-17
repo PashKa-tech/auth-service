@@ -75,7 +75,7 @@ def hash_opaque_token(token: str) -> str:
     """Hash an opaque token using SHA-256 for secure database storage."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
-def create_mfa_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
+def create_mfa_token(user_id: uuid.UUID, tenant_id: uuid.UUID, extra_payload: dict | None = None) -> str:
     """Generate a short-lived (5 min) MFA challenge token."""
     now = datetime.now(timezone.utc)
     expire = now + timedelta(minutes=settings.MFA_TOKEN_EXPIRE_MINUTES)
@@ -88,7 +88,9 @@ def create_mfa_token(user_id: uuid.UUID, tenant_id: uuid.UUID) -> str:
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
     }
-    
+    if extra_payload:
+        payload.update(extra_payload)
+        
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 def verify_mfa_token(token: str) -> dict | None:
@@ -105,3 +107,17 @@ def verify_mfa_token(token: str) -> dict | None:
         return payload
     except (jwt.PyJWTError, ValueError):
         return None
+
+def verify_pkce(verifier: str, challenge: str, method: str = "S256") -> bool:
+    """Verify code_verifier against code_challenge using challenge method."""
+    if method == "plain":
+        return verifier == challenge
+    elif method == "S256":
+        import hashlib
+        import base64
+        # Calculate SHA-256 hash
+        hashed = hashlib.sha256(verifier.encode("ascii")).digest()
+        # Base64url encode and remove padding
+        calculated = base64.urlsafe_b64encode(hashed).decode("utf-8").replace("=", "")
+        return calculated == challenge
+    return False

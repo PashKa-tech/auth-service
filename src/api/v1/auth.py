@@ -50,6 +50,10 @@ class TwoFactorDisableRequest(BaseModel):
     password: str | None = None
     totp_code: str | None = None
 
+class OAuthTokenRequest(BaseModel):
+    code: str
+    code_verifier: str
+
 class UnifiedResponse(BaseModel):
     success: bool
     data: Any | None = None
@@ -326,14 +330,34 @@ async def list_sessions(
 async def oauth_login(
     provider: str,
     state: str | None = None,
+    code_challenge: str | None = None,
+    code_challenge_method: str | None = None,
+    redirect_uri: str | None = None,
     oauth_service: OAuthService = Depends(get_oauth_service_dep),
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """Initiate OAuth flow by redirecting client to provider authorize page."""
-    # If no state, generate random uuid
-    oauth_state = state or str(uuid.uuid4())
+    internal_state = str(uuid.uuid4())
+    
+    # Save flow context to Redis
+    from src.core.redis import init_redis
+    import json
     try:
-        auth_url = oauth_service.get_authorization_url(provider, oauth_state)
+        redis_client = await init_redis()
+        flow_data = {
+            "tenant_id": str(tenant_id),
+            "client_state": state,
+            "client_redirect_uri": redirect_uri,
+            "code_challenge": code_challenge,
+            "code_challenge_method": code_challenge_method or "S256"
+        }
+        await redis_client.set(f"oauth_state:{internal_state}", json.dumps(flow_data), ex=600)
+    except Exception as e:
+        logger.error(f"Failed to cache OAuth state: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+
+    try:
+        auth_url = oauth_service.get_authorization_url(provider, internal_state)
         return RedirectResponse(url=auth_url)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -350,6 +374,35 @@ async def oauth_callback(
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """Handle OAuth provider callback, resolve user and issue session/tokens."""
+    if not state:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing state parameter")
+        
+    from src.core.redis import init_redis
+    import json
+    try:
+        redis_client = await init_redis()
+        state_data_json = await redis_client.get(f"oauth_state:{state}")
+        if not state_data_json:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired state (CSRF verification failed)")
+            
+        state_data = json.loads(state_data_json)
+        await redis_client.delete(f"oauth_state:{state}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve/delete OAuth state from Redis: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+        
+    client_state = state_data.get("client_state")
+    client_redirect_uri = state_data.get("client_redirect_uri")
+    code_challenge = state_data.get("code_challenge")
+    code_challenge_method = state_data.get("code_challenge_method")
+
+    # Determine redirect URL back to client
+    redirect_url = client_redirect_uri or "http://localhost:3000"
+    if not client_redirect_uri and client_state and (client_state.startswith("http://") or client_state.startswith("https://")):
+        redirect_url = client_state
+
     try:
         # Check if user is already authenticated
         current_user = None
@@ -393,7 +446,15 @@ async def oauth_callback(
         # 2FA Check
         if user.is_two_factor_enabled:
             from src.core.security import create_mfa_token
-            mfa_token = create_mfa_token(user.id, tenant_id)
+            extra = {}
+            if code_challenge:
+                extra = {
+                    "code_challenge": code_challenge,
+                    "code_challenge_method": code_challenge_method,
+                    "client_redirect_uri": redirect_url,
+                    "client_state": client_state
+                }
+            mfa_token = create_mfa_token(user.id, tenant_id, extra_payload=extra)
             await auth_service.audit_repo.create(
                 action="2fa_challenge_issued",
                 user_id=user.id,
@@ -412,14 +473,41 @@ async def oauth_callback(
                     }
                 )
             else:
-                redirect_url = "http://localhost:3000"
-                if state and (state.startswith("http://") or state.startswith("https://")):
-                    redirect_url = state
                 separator = "&" if "?" in redirect_url else "?"
                 redirect_resp = RedirectResponse(
                     url=f"{redirect_url}{separator}requires_2fa=true&mfa_token={mfa_token}"
                 )
                 return redirect_resp
+
+        # If PKCE flow, generate auth_code instead of issuing session/tokens
+        if code_challenge:
+            auth_code = str(uuid.uuid4())
+            code_data = {
+                "user_id": str(user.id),
+                "tenant_id": str(tenant_id),
+                "role": user.role,
+                "code_challenge": code_challenge,
+                "code_challenge_method": code_challenge_method
+            }
+            try:
+                await redis_client.set(f"oauth_code:{auth_code}", json.dumps(code_data), ex=300)
+            except Exception as e:
+                logger.error(f"Failed to save oauth code: {str(e)}")
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+                
+            mobile = is_mobile_client(request)
+            if mobile:
+                return UnifiedResponse(
+                    success=True,
+                    data={
+                        "code": auth_code,
+                        "state": client_state
+                    }
+                )
+            else:
+                separator = "&" if "?" in redirect_url else "?"
+                state_query = f"&state={client_state}" if client_state else ""
+                return RedirectResponse(url=f"{redirect_url}{separator}code={auth_code}{state_query}")
 
         # Create session
         session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
@@ -462,8 +550,6 @@ async def oauth_callback(
 
         mobile = is_mobile_client(request)
         if mobile:
-            # For mobile, we return the tokens directly or redirect to a custom app scheme.
-            # In our system contract, we can return a JSON with tokens
             return UnifiedResponse(
                 success=True,
                 data={
@@ -473,14 +559,6 @@ async def oauth_callback(
                 }
             )
         else:
-            # Set cookies and redirect back to client frontend
-            # We can read the client redirect URI from state if it starts with http
-            redirect_url = "http://localhost:3000" # Default fallback
-            if state and (state.startswith("http://") or state.startswith("https://")):
-                # Basic validation: ensure we only redirect to safe URLs
-                # For MVP we allow anything, in prod we would restrict to whitelisted domains
-                redirect_url = state
-                
             redirect_resp = RedirectResponse(url=redirect_url)
             set_auth_cookies(redirect_resp, access_token, raw_refresh)
             return redirect_resp
@@ -680,6 +758,78 @@ async def verify_2fa(
         ua = request.headers.get("User-Agent")
         lang = request.headers.get("Accept-Language")
 
+        # Check if PKCE is embedded in token payload
+        from src.core.security import verify_mfa_token
+        payload = verify_mfa_token(body.mfa_token)
+        if not payload:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired 2FA token")
+            
+        code_challenge = payload.get("code_challenge")
+        
+        if code_challenge:
+            # Handle PKCE flow verify
+            user_id = uuid.UUID(payload["sub"])
+            user = await auth_service.user_repo.get_by_id(user_id)
+            if not user or not user.is_active:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or deactivated")
+                
+            is_verified = await two_factor_service.verify_2fa(user, body.totp_code)
+            if not is_verified:
+                from src.core.metrics import LOGIN_COUNTER
+                LOGIN_COUNTER.labels(status="failed", tenant_id=str(tenant_id)).inc()
+                from src.core.fingerprint import calculate_device_fingerprint
+                fingerprint = calculate_device_fingerprint(ua, ip, lang)
+                await auth_service.audit_repo.create(
+                    action="login_failed",
+                    user_id=user.id,
+                    ip_address=ip,
+                    user_agent=ua,
+                    device_fingerprint=fingerprint,
+                    metadata_json={"reason": "invalid_2fa_code"}
+                )
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid 2FA code")
+                
+            # Generate authorization_code
+            auth_code = str(uuid.uuid4())
+            code_challenge_method = payload.get("code_challenge_method", "S256")
+            client_redirect_uri = payload.get("client_redirect_uri")
+            client_state = payload.get("client_state")
+            
+            code_data = {
+                "user_id": str(user.id),
+                "tenant_id": str(tenant_id),
+                "role": user.role,
+                "code_challenge": code_challenge,
+                "code_challenge_method": code_challenge_method
+            }
+            
+            from src.core.redis import init_redis
+            import json
+            redis_client = await init_redis()
+            await redis_client.set(f"oauth_code:{auth_code}", json.dumps(code_data), ex=300)
+            
+            mobile = is_mobile_client(request)
+            if mobile:
+                return UnifiedResponse(
+                    success=True,
+                    data={
+                        "code": auth_code,
+                        "state": client_state
+                    }
+                )
+            else:
+                redirect_url = client_redirect_uri or "http://localhost:3000"
+                separator = "&" if "?" in redirect_url else "?"
+                state_query = f"&state={client_state}" if client_state else ""
+                return UnifiedResponse(
+                    success=True,
+                    data={
+                        "code": auth_code,
+                        "state": client_state,
+                        "redirect_url": f"{redirect_url}{separator}code={auth_code}{state_query}"
+                    }
+                )
+
         login_result = await auth_service.complete_2fa_login(
             mfa_token=body.mfa_token,
             totp_code=body.totp_code,
@@ -706,6 +856,8 @@ async def verify_2fa(
         else:
             set_auth_cookies(response, access_token, refresh_token)
             return UnifiedResponse(success=True, data={"message": "Login successful"})
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
 
@@ -756,5 +908,115 @@ async def disable_2fa(
 async def admin_only(current_user: User = Depends(RoleChecker(["admin"]))):
     """Admin-only endpoint to verify RBAC."""
     return UnifiedResponse(success=True, data={"message": "Welcome, Admin!"})
+
+@router.post("/oauth/token", response_model=UnifiedResponse)
+async def oauth_token_exchange(
+    request: Request,
+    response: Response,
+    body: OAuthTokenRequest,
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Exchange PKCE authorization code for access and refresh tokens."""
+    from src.core.redis import init_redis
+    import json
+    try:
+        redis_client = await init_redis()
+        code_data_json = await redis_client.get(f"oauth_code:{body.code}")
+        if not code_data_json:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired authorization code")
+            
+        code_data = json.loads(code_data_json)
+        await redis_client.delete(f"oauth_code:{body.code}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to retrieve/delete OAuth code: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+        
+    user_id = uuid.UUID(code_data["user_id"])
+    tenant_id = uuid.UUID(code_data["tenant_id"])
+    code_challenge = code_data["code_challenge"]
+    code_challenge_method = code_data["code_challenge_method"]
+    
+    # Verify PKCE
+    from src.core.security import verify_pkce
+    if not verify_pkce(body.code_verifier, code_challenge, code_challenge_method):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code_verifier")
+        
+    user = await auth_service.user_repo.get_by_id(user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User account is deactivated or not found")
+        
+    auth_service.tenant_id = tenant_id
+    
+    from datetime import datetime, timezone, timedelta
+    from src.core.security import create_access_token, generate_opaque_token, hash_opaque_token
+    from src.core.fingerprint import calculate_device_fingerprint
+    from src.core.metrics import LOGIN_COUNTER, ACTIVE_SESSIONS
+    
+    ip = get_client_ip(request)
+    ua = request.headers.get("User-Agent")
+    lang = request.headers.get("Accept-Language")
+    fingerprint = calculate_device_fingerprint(ua, ip, lang)
+    
+    session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    session = await auth_service.session_repo.create(
+        user_id=user.id,
+        expires_at=session_expiry,
+        ip_address=ip,
+        user_agent=ua,
+        device_fingerprint=fingerprint
+    )
+    
+    raw_refresh = generate_opaque_token()
+    refresh_hash = hash_opaque_token(raw_refresh)
+    family_id = str(uuid.uuid4())
+    
+    await auth_service.token_repo.create(
+        session_id=session.id,
+        token_hash=refresh_hash,
+        family_id=family_id,
+        expires_at=session_expiry
+    )
+    
+    access_token = create_access_token(
+        subject=user.id,
+        tenant_id=tenant_id,
+        role=user.role,
+        session_id=session.id
+    )
+    
+    LOGIN_COUNTER.labels(status="success", tenant_id=str(tenant_id)).inc()
+    ACTIVE_SESSIONS.labels(tenant_id=str(tenant_id)).inc()
+    
+    await auth_service.audit_repo.create(
+        action="login_success",
+        user_id=user.id,
+        ip_address=ip,
+        user_agent=ua,
+        device_fingerprint=fingerprint,
+        metadata_json={"session_id": str(session.id), "method": "oauth_pkce"}
+    )
+    
+    mobile = is_mobile_client(request)
+    if mobile:
+        return UnifiedResponse(
+            success=True,
+            data={
+                "access_token": access_token,
+                "refresh_token": raw_refresh,
+                "user": {"id": str(user.id), "role": user.role}
+            }
+        )
+    else:
+        set_auth_cookies(response, access_token, raw_refresh)
+        return UnifiedResponse(
+            success=True,
+            data={
+                "access_token": access_token,
+                "refresh_token": raw_refresh,
+                "user": {"id": str(user.id), "role": user.role}
+            }
+        )
 
 
