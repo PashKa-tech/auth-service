@@ -24,11 +24,19 @@ class UserLoginRequest(BaseModel):
     email: EmailStr
     password: str
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(..., min_length=8, max_length=128)
+
 class UnifiedResponse(BaseModel):
     success: bool
     data: Any | None = None
     error: Any | None = None
     meta: dict = Field(default_factory=lambda: {"version": "v1", "request_id": get_request_id()})
+
 
 # --- Helper Functions ---
 
@@ -459,3 +467,79 @@ async def unlink_account(
     )
     
     return UnifiedResponse(success=True, data={"message": f"Successfully unlinked {provider} account"})
+
+# --- Email Verification & Password Reset Endpoints ---
+
+@router.post("/request-email-verification", response_model=UnifiedResponse)
+async def request_email_verification(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+):
+    """Trigger email verification link sending."""
+    # Rate Limit: IP limit (3 per min) and User limit (2 per min)
+    ip_limit_key = f"email_verify_req_ip:{tenant_id}:{request.client.host if request.client else 'unknown'}"
+    user_limit_key = f"email_verify_req_user:{tenant_id}:{current_user.id}"
+    
+    if await is_rate_limited(ip_limit_key, 3):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many verification requests. Try again later.")
+    if await is_rate_limited(user_limit_key, 2):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many verification requests. Try again later.")
+
+    try:
+        await auth_service.request_email_verification(current_user.id)
+        return UnifiedResponse(success=True, data={"message": "Verification email sent"})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.get("/verify-email", response_model=UnifiedResponse)
+async def verify_email(
+    token: str,
+    auth_service: AuthService = Depends(get_auth_service),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+):
+    """Verify email via GET link callback."""
+    try:
+        await auth_service.verify_email(token)
+        return UnifiedResponse(success=True, data={"message": "Email verified successfully"})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.post("/forgot-password", response_model=UnifiedResponse)
+async def forgot_password(
+    request: Request,
+    body: ForgotPasswordRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+):
+    """Initiate password recovery."""
+    ip_limit_key = f"forgot_password_ip:{tenant_id}:{request.client.host if request.client else 'unknown'}"
+    if await is_rate_limited(ip_limit_key, 3):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many password reset attempts. Try again later.")
+
+    # Does not throw error if email is invalid, prevents email enumeration
+    try:
+        await auth_service.request_password_reset(body.email)
+        return UnifiedResponse(success=True, data={"message": "If the email exists, a password reset link has been sent."})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.post("/reset-password", response_model=UnifiedResponse)
+async def reset_password(
+    request: Request,
+    body: ResetPasswordRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+):
+    """Perform password reset using token."""
+    ip_limit_key = f"reset_password_ip:{tenant_id}:{request.client.host if request.client else 'unknown'}"
+    if await is_rate_limited(ip_limit_key, 5):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many password reset attempts. Try again later.")
+
+    try:
+        await auth_service.reset_password(body.token, body.new_password)
+        return UnifiedResponse(success=True, data={"message": "Password reset successfully"})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+

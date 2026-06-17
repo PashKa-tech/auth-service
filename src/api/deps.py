@@ -17,6 +17,7 @@ from src.repositories.audit import AuditRepository
 from src.repositories.oauth import OAuthRepository
 from src.services.auth import AuthService
 from src.services.oauth import OAuthService
+from src.services.email import EmailService
 from src.models.user import User
 
 # Define header schemas
@@ -103,6 +104,60 @@ async def resolve_tenant(
         except ValueError:
             pass
 
+    # 5. Check query parameters (for verification or reset URLs)
+    tenant_param = request.query_params.get("tenant_id")
+    if not tenant_id and tenant_param:
+        try:
+            tenant_uuid = uuid.UUID(tenant_param)
+            tenant_repo = TenantRepository(db)
+            tenant = await tenant_repo.get_by_id(tenant_uuid)
+            if tenant:
+                tenant_id = tenant.id
+        except ValueError:
+            pass
+
+    # 6. Check for Token in Query Params or POST Body (fallback for email verification or password reset)
+    token_param = request.query_params.get("token")
+    if not tenant_id and token_param:
+        from src.core.redis import init_redis
+        try:
+            redis_client = await init_redis()
+            val = await redis_client.get(f"email_verify:{token_param}")
+            if not val:
+                val = await redis_client.get(f"password_reset:{token_param}")
+            
+            if val:
+                val_str = val.decode("utf-8") if isinstance(val, bytes) else str(val)
+                user_uuid = uuid.UUID(val_str)
+                from src.models.user import User as DBUser
+                from sqlalchemy import select
+                res = await db.execute(select(DBUser).where(DBUser.id == user_uuid))
+                db_user = res.scalar_one_or_none()
+                if db_user:
+                    tenant_id = db_user.tenant_id
+        except Exception:
+            pass
+
+    if not tenant_id and request.method == "POST" and request.url.path.endswith("/reset-password"):
+        try:
+            body_json = await request.json()
+            token_body = body_json.get("token")
+            if token_body:
+                from src.core.redis import init_redis
+                redis_client = await init_redis()
+                val = await redis_client.get(f"password_reset:{token_body}")
+                if val:
+                    val_str = val.decode("utf-8") if isinstance(val, bytes) else str(val)
+                    user_uuid = uuid.UUID(val_str)
+                    from src.models.user import User as DBUser
+                    from sqlalchemy import select
+                    res = await db.execute(select(DBUser).where(DBUser.id == user_uuid))
+                    db_user = res.scalar_one_or_none()
+                    if db_user:
+                        tenant_id = db_user.tenant_id
+        except Exception:
+            pass
+
     if not tenant_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -112,6 +167,7 @@ async def resolve_tenant(
     # Set contextvar for structured logging and repositories
     set_tenant_id(tenant_id)
     return tenant_id
+
 
 # Instantiations of Scoped Repositories
 async def get_user_repository(
@@ -144,14 +200,18 @@ async def get_oauth_repository(
 ) -> OAuthRepository:
     return OAuthRepository(db, tenant_id)
 
+async def get_email_service() -> EmailService:
+    return EmailService()
+
 async def get_auth_service(
     user_repo: UserRepository = Depends(get_user_repository),
     session_repo: SessionRepository = Depends(get_session_repository),
     token_repo: TokenRepository = Depends(get_token_repository),
     audit_repo: AuditRepository = Depends(get_audit_repository),
-    oauth_repo: OAuthRepository = Depends(get_oauth_repository)
+    oauth_repo: OAuthRepository = Depends(get_oauth_repository),
+    email_service: EmailService = Depends(get_email_service)
 ) -> AuthService:
-    return AuthService(user_repo, session_repo, token_repo, audit_repo, oauth_repo)
+    return AuthService(user_repo, session_repo, token_repo, audit_repo, oauth_repo, email_service)
 
 async def get_oauth_service_dep(
     oauth_repo: OAuthRepository = Depends(get_oauth_repository)
