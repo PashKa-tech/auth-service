@@ -137,3 +137,154 @@ async def test_password_reset_flow(client: AsyncClient, db_session):
     )
     assert login_new.status_code == 200
     assert login_new.json()["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_2fa_email_notifications(client: AsyncClient, db_session, monkeypatch):
+    from src.services.email import EmailService
+    
+    sent_emails = []
+    async def mock_send_email(self, to_email: str, subject: str, body: str):
+        sent_emails.append((to_email, subject, body))
+    monkeypatch.setattr(EmailService, "send_email", mock_send_email)
+    
+    headers = {"X-Api-Key": TEST_API_KEY}
+    email = "mfa_notify_test@example.com"
+    password = "SuperPassword123!"
+    
+    # 1. Register User
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        headers=headers,
+        json={"email": email, "password": password}
+    )
+    assert reg_resp.status_code == 201
+    
+    # 2. Login to get cookies
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        headers=headers,
+        json={"email": email, "password": password}
+    )
+    assert login_resp.status_code == 200
+    cookies = login_resp.cookies
+    
+    # 3. Setup 2FA
+    setup_resp = await client.post(
+        "/api/v1/auth/2fa/setup",
+        headers=headers,
+        cookies=cookies
+    )
+    assert setup_resp.status_code == 200
+    totp_secret = setup_resp.json()["data"]["totp_secret"]
+    
+    # 4. Confirm 2FA (should trigger confirm email)
+    import pyotp
+    totp = pyotp.TOTP(totp_secret)
+    totp_code = totp.now()
+    
+    confirm_resp = await client.post(
+        "/api/v1/auth/2fa/confirm-setup",
+        headers=headers,
+        cookies=cookies,
+        json={"totp_code": totp_code}
+    )
+    assert confirm_resp.status_code == 200
+    
+    # Assert 2FA Enabled email was sent
+    assert len(sent_emails) == 1
+    assert sent_emails[0][0] == email
+    assert "включена" in sent_emails[0][1]
+    
+    # 5. Regenerate backup codes (should trigger regenerate email)
+    regen_resp = await client.post(
+        "/api/v1/auth/2fa/backup-codes/regenerate",
+        headers=headers,
+        cookies=cookies
+    )
+    assert regen_resp.status_code == 200
+    
+    # Assert backup codes regenerated email sent
+    assert len(sent_emails) == 2
+    assert sent_emails[1][0] == email
+    assert "резервные коды" in sent_emails[1][1].lower()
+    
+    # 6. Disable 2FA (should trigger disable email)
+    disable_resp = await client.post(
+        "/api/v1/auth/2fa/disable",
+        headers=headers,
+        cookies=cookies,
+        json={"totp_code": totp_code}
+    )
+    assert disable_resp.status_code == 200
+    
+    # Assert 2FA Disabled email sent
+    assert len(sent_emails) == 3
+    assert sent_emails[2][0] == email
+    assert "отключена" in sent_emails[2][1]
+
+
+@pytest.mark.asyncio
+async def test_suspicious_login_email_notification(client: AsyncClient, db_session, monkeypatch):
+    from src.services.email import EmailService
+    
+    sent_emails = []
+    async def mock_send_email(self, to_email: str, subject: str, body: str):
+        sent_emails.append((to_email, subject, body))
+    monkeypatch.setattr(EmailService, "send_email", mock_send_email)
+    
+    # Mock get_country_from_ip to return different countries
+    from src.services import auth
+    countries = ["US", "US", "DE"]  # First two sessions US, third one DE (anomaly)
+    country_index = 0
+    
+    def mock_get_country_from_ip(ip: str) -> str:
+        nonlocal country_index
+        c = countries[country_index % len(countries)]
+        country_index += 1
+        return c
+    
+    monkeypatch.setattr(auth, "get_country_from_ip", mock_get_country_from_ip)
+    
+    headers = {"X-Api-Key": TEST_API_KEY}
+    email = "anomaly_notify_test@example.com"
+    password = "SuperPassword123!"
+    
+    # 1. Register
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        headers=headers,
+        json={"email": email, "password": password}
+    )
+    assert reg_resp.status_code == 201
+    
+    # 2. Login 1 (from IP 1.1.1.1 -> US)
+    login1 = await client.post(
+        "/api/v1/auth/login",
+        headers={**headers, "X-Forwarded-For": "1.1.1.1"},
+        json={"email": email, "password": password}
+    )
+    assert login1.status_code == 200
+    
+    # 3. Login 2 (from IP 2.2.2.2 -> US)
+    login2 = await client.post(
+        "/api/v1/auth/login",
+        headers={**headers, "X-Forwarded-For": "2.2.2.2"},
+        json={"email": email, "password": password}
+    )
+    assert login2.status_code == 200
+    
+    # 4. Login 3 (from IP 3.3.3.3 -> DE -> Anomaly alert!)
+    login3 = await client.post(
+        "/api/v1/auth/login",
+        headers={**headers, "X-Forwarded-For": "3.3.3.3"},
+        json={"email": email, "password": password}
+    )
+    assert login3.status_code == 200
+    
+    # Assert anomaly notification email was sent
+    assert len(sent_emails) == 1
+    assert sent_emails[0][0] == email
+    assert "подозрительный вход" in sent_emails[0][1]
+    assert "DE" in sent_emails[0][2]
+

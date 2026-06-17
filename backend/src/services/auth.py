@@ -93,6 +93,39 @@ class AuthService:
                     "past_countries": list(past_countries)
                 }
             )
+            
+            # Send warning email
+            user = await self.user_repo.get_by_id(user_id)
+            if user:
+                await self.email_service.send_email(
+                    to_email=user.email,
+                    subject="Предупреждение безопасности: обнаружен подозрительный вход - Auth Service",
+                    body=f"""
+                    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ef4444; border-radius: 8px;">
+                        <h2 style="color: #ef4444; margin-top: 0;">Подозрительная активность входа</h2>
+                        <p>Здравствуйте,</p>
+                        <p>Мы обнаружили вход в ваш аккаунт из необычного местоположения:</p>
+                        <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+                            <tr style="background: #f9fafb;">
+                                <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #e5e7eb;">IP-адрес:</td>
+                                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">{current_ip}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #e5e7eb;">Страна:</td>
+                                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">{current_country}</td>
+                            </tr>
+                            <tr style="background: #f9fafb;">
+                                <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #e5e7eb;">Устройство:</td>
+                                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">{user_agent or 'Неизвестно'}</td>
+                            </tr>
+                        </table>
+                        <p>Этот вход отличается от вашей обычной географии входа (ранее использовались: {', '.join(past_countries)}).</p>
+                        <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+                        <p style="font-weight: bold;">Если это были не вы:</p>
+                        <p>Пожалуйста, <strong>немедленно смените пароль вашего аккаунта</strong> и завершите все активные сеансы в личном кабинете.</p>
+                    </div>
+                    """
+                )
 
 
     async def register_user(self, email: str, password: str, role: str = "user") -> User:

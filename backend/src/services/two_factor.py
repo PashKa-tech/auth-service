@@ -2,6 +2,7 @@ import uuid
 from src.models.user import User
 from src.repositories.user import UserRepository
 from src.repositories.two_factor import TwoFactorRepository
+from src.services.email import EmailService
 from src.core.totp import (
     generate_totp_secret,
     get_provisioning_uri,
@@ -13,9 +14,10 @@ from src.core.totp import (
 )
 
 class TwoFactorService:
-    def __init__(self, user_repo: UserRepository, two_factor_repo: TwoFactorRepository):
+    def __init__(self, user_repo: UserRepository, two_factor_repo: TwoFactorRepository, email_service: EmailService):
         self.user_repo = user_repo
         self.two_factor_repo = two_factor_repo
+        self.email_service = email_service
 
     async def setup_2fa(self, user: User) -> dict:
         """Initialize 2FA setup: generate temporary secret and backup codes."""
@@ -69,6 +71,22 @@ class TwoFactorService:
         # Enable 2FA
         user.is_two_factor_enabled = True
         await self.user_repo.update(user)
+
+        # Send email notification
+        await self.email_service.send_email(
+            to_email=user.email,
+            subject="Двухфакторная аутентификация включена - Auth Service",
+            body="""
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                <h2 style="color: #10b981;">Безопасность вашего аккаунта обновлена</h2>
+                <p>Здравствуйте,</p>
+                <p>На вашем аккаунте была успешно <strong>включена двухфакторная аутентификация (2FA)</strong>.</p>
+                <p>При каждом входе в систему теперь потребуется вводить проверочный код из вашего приложения аутентификации.</p>
+                <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+                <p style="font-size: 0.85rem; color: #6b7280;">Если вы не совершали этого действия, пожалуйста, незамедлительно свяжитесь с поддержкой.</p>
+            </div>
+            """
+        )
         return True
 
     async def verify_2fa(self, user: User, code: str) -> bool:
@@ -114,6 +132,22 @@ class TwoFactorService:
         raw_backup_codes = generate_backup_codes()
         code_hashes = [hash_backup_code(code) for code in raw_backup_codes]
         await self.two_factor_repo.create_codes(user.id, code_hashes)
+
+        # Send email notification
+        await self.email_service.send_email(
+            to_email=user.email,
+            subject="Резервные коды 2FA обновлены - Auth Service",
+            body="""
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                <h2 style="color: #f59e0b;">Обновление резервных кодов</h2>
+                <p>Здравствуйте,</p>
+                <p>Резервные коды двухфакторной аутентификации для вашего аккаунта были <strong>перегенерированы</strong>.</p>
+                <p>Все старые резервные коды стали недействительными.</p>
+                <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+                <p style="font-size: 0.85rem; color: #6b7280;">Если вы не запрашивали перегенерацию, ваш аккаунт может быть скомпрометирован. Пожалуйста, смените пароль и обратитесь в поддержку.</p>
+            </div>
+            """
+        )
         return raw_backup_codes
 
     async def disable_2fa(self, user: User) -> None:
@@ -127,4 +161,20 @@ class TwoFactorService:
 
         # Clear backup codes
         await self.two_factor_repo.delete_all_for_user(user.id)
+
+        # Send email notification
+        await self.email_service.send_email(
+            to_email=user.email,
+            subject="Двухфакторная аутентификация отключена - Auth Service",
+            body="""
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                <h2 style="color: #ef4444;">Предупреждение безопасности</h2>
+                <p>Здравствуйте,</p>
+                <p>На вашем аккаунте была <strong>отключена двухфакторная аутентификация (2FA)</strong>.</p>
+                <p>Уровень защиты вашего аккаунта снижен, теперь для входа требуется только пароль.</p>
+                <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+                <p style="font-size: 0.85rem; color: #6b7280;">Если вы не совершали этого действия, пожалуйста, немедленно свяжитесь с поддержкой.</p>
+            </div>
+            """
+        )
         

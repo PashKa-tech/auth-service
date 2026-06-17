@@ -233,14 +233,15 @@ async def get_two_factor_repository(
 ) -> TwoFactorRepository:
     return TwoFactorRepository(db, tenant_id)
 
-async def get_two_factor_service(
-    user_repo: UserRepository = Depends(get_user_repository),
-    two_factor_repo: TwoFactorRepository = Depends(get_two_factor_repository)
-) -> TwoFactorService:
-    return TwoFactorService(user_repo, two_factor_repo)
-
 async def get_email_service() -> EmailService:
     return EmailService()
+
+async def get_two_factor_service(
+    user_repo: UserRepository = Depends(get_user_repository),
+    two_factor_repo: TwoFactorRepository = Depends(get_two_factor_repository),
+    email_service: EmailService = Depends(get_email_service)
+) -> TwoFactorService:
+    return TwoFactorService(user_repo, two_factor_repo, email_service)
 
 async def get_auth_service(
     user_repo: UserRepository = Depends(get_user_repository),
