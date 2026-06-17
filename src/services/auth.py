@@ -6,7 +6,9 @@ from src.core.security import (
     verify_password,
     create_access_token,
     generate_opaque_token,
-    hash_opaque_token
+    hash_opaque_token,
+    create_mfa_token,
+    verify_mfa_token
 )
 from src.core.fingerprint import calculate_device_fingerprint
 from src.repositories.user import UserRepository
@@ -19,6 +21,21 @@ from src.models.user import User
 from src.models.session import Session
 from src.core.metrics import LOGIN_COUNTER, REFRESH_COUNTER, ACTIVE_SESSIONS
 from src.core.geoip import get_country_from_ip
+
+class LoginResult:
+    def __init__(
+        self,
+        requires_2fa: bool,
+        mfa_token: str | None = None,
+        access_token: str | None = None,
+        refresh_token: str | None = None,
+        session: Session | None = None
+    ):
+        self.requires_2fa = requires_2fa
+        self.mfa_token = mfa_token
+        self.access_token = access_token
+        self.refresh_token = refresh_token
+        self.session = session
 
 class AuthService:
     def __init__(
@@ -110,7 +127,7 @@ class AuthService:
         ip_address: str | None = None,
         user_agent: str | None = None,
         accept_language: str | None = None
-    ) -> tuple[str, str, Session]:
+    ) -> LoginResult:
         """Authenticate user and issue new session and tokens."""
         # Calculate fingerprint
         fingerprint = calculate_device_fingerprint(user_agent, ip_address, accept_language)
@@ -140,6 +157,18 @@ class AuthService:
                 metadata_json={"reason": "account_deactivated"}
             )
             raise ValueError("Account is deactivated")
+
+        # Check if 2FA is enabled
+        if user.is_two_factor_enabled:
+            mfa_token = create_mfa_token(user.id, self.tenant_id)
+            await self.audit_repo.create(
+                action="2fa_challenge_issued",
+                user_id=user.id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                device_fingerprint=fingerprint
+            )
+            return LoginResult(requires_2fa=True, mfa_token=mfa_token)
 
         # Check for location anomaly (mock GeoIP)
         await self._check_ip_anomaly(user.id, ip_address, user_agent, fingerprint)
@@ -184,6 +213,96 @@ class AuthService:
             user_agent=user_agent,
             device_fingerprint=fingerprint,
             metadata_json={"session_id": str(session.id)}
+        )
+
+        return LoginResult(
+            requires_2fa=False,
+            access_token=access_token,
+            refresh_token=raw_refresh,
+            session=session
+        )
+
+    async def complete_2fa_login(
+        self,
+        mfa_token: str,
+        totp_code: str,
+        two_factor_service: any,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        accept_language: str | None = None
+    ) -> tuple[str, str, Session]:
+        """Verify the MFA token and the TOTP/backup code, then issue a session and tokens."""
+        # Calculate fingerprint
+        fingerprint = calculate_device_fingerprint(user_agent, ip_address, accept_language)
+
+        # 1. Verify MFA token
+        payload = verify_mfa_token(mfa_token)
+        if not payload or str(payload.get("tenant_id")) != str(self.tenant_id):
+            raise ValueError("Invalid or expired 2FA token")
+            
+        user_id = uuid.UUID(payload["sub"])
+        user = await self.user_repo.get_by_id(user_id)
+        if not user or not user.is_active:
+            raise ValueError("User not found or deactivated")
+            
+        # 2. Verify TOTP / backup code
+        is_verified = await two_factor_service.verify_2fa(user, totp_code)
+        
+        if not is_verified:
+            LOGIN_COUNTER.labels(status="failed", tenant_id=str(self.tenant_id)).inc()
+            await self.audit_repo.create(
+                action="login_failed",
+                user_id=user.id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                device_fingerprint=fingerprint,
+                metadata_json={"reason": "invalid_2fa_code"}
+            )
+            raise ValueError("Invalid 2FA code")
+            
+        # Check for location anomaly (mock GeoIP)
+        await self._check_ip_anomaly(user.id, ip_address, user_agent, fingerprint)
+
+        # 3. Create Session
+        session_expiry = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        session = await self.session_repo.create(
+            user_id=user.id,
+            expires_at=session_expiry,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_fingerprint=fingerprint
+        )
+
+        # 4. Generate & Store Refresh Token (SHA-256 hashed)
+        raw_refresh = generate_opaque_token()
+        refresh_hash = hash_opaque_token(raw_refresh)
+        family_id = str(uuid.uuid4())
+        
+        await self.token_repo.create(
+            session_id=session.id,
+            token_hash=refresh_hash,
+            family_id=family_id,
+            expires_at=session_expiry
+        )
+
+        # 5. Generate Access Token (JWT)
+        access_token = create_access_token(
+            subject=user.id,
+            tenant_id=self.tenant_id,
+            role=user.role,
+            session_id=session.id
+        )
+
+        # 6. Audit Log
+        LOGIN_COUNTER.labels(status="success", tenant_id=str(self.tenant_id)).inc()
+        ACTIVE_SESSIONS.labels(tenant_id=str(self.tenant_id)).inc()
+        await self.audit_repo.create(
+            action="login_success",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_fingerprint=fingerprint,
+            metadata_json={"session_id": str(session.id), "mfa_verified": True}
         )
 
         return access_token, raw_refresh, session

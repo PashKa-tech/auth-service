@@ -15,9 +15,11 @@ from src.repositories.session import SessionRepository
 from src.repositories.token import TokenRepository
 from src.repositories.audit import AuditRepository
 from src.repositories.oauth import OAuthRepository
+from src.repositories.two_factor import TwoFactorRepository
 from src.services.auth import AuthService
 from src.services.oauth import OAuthService
 from src.services.email import EmailService
+from src.services.two_factor import TwoFactorService
 from src.models.user import User
 
 # Define header schemas
@@ -199,6 +201,18 @@ async def get_oauth_repository(
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ) -> OAuthRepository:
     return OAuthRepository(db, tenant_id)
+
+async def get_two_factor_repository(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+) -> TwoFactorRepository:
+    return TwoFactorRepository(db, tenant_id)
+
+async def get_two_factor_service(
+    user_repo: UserRepository = Depends(get_user_repository),
+    two_factor_repo: TwoFactorRepository = Depends(get_two_factor_repository)
+) -> TwoFactorService:
+    return TwoFactorService(user_repo, two_factor_repo)
 
 async def get_email_service() -> EmailService:
     return EmailService()

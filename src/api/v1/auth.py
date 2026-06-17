@@ -3,9 +3,17 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request, Response, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from src.core.context import get_request_id
-from src.api.deps import get_auth_service, get_current_user, resolve_tenant, get_oauth_service_dep, RoleChecker
+from src.api.deps import (
+    get_auth_service,
+    get_current_user,
+    resolve_tenant,
+    get_oauth_service_dep,
+    RoleChecker,
+    get_two_factor_service
+)
 from src.services.auth import AuthService
 from src.services.oauth import OAuthService
+from src.services.two_factor import TwoFactorService
 from src.models.user import User
 from src.config import settings
 from fastapi.responses import RedirectResponse
@@ -30,6 +38,17 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str = Field(..., min_length=8, max_length=128)
+
+class TwoFactorConfirmRequest(BaseModel):
+    totp_code: str
+
+class TwoFactorVerifyRequest(BaseModel):
+    mfa_token: str
+    totp_code: str
+
+class TwoFactorDisableRequest(BaseModel):
+    password: str | None = None
+    totp_code: str | None = None
 
 class UnifiedResponse(BaseModel):
     success: bool
@@ -128,13 +147,26 @@ async def login(
         ua = request.headers.get("User-Agent")
         lang = request.headers.get("Accept-Language")
         
-        access_token, refresh_token, session = await auth_service.login_user(
+        login_result = await auth_service.login_user(
             email=body.email,
             password=body.password,
             ip_address=ip,
             user_agent=ua,
             accept_language=lang
         )
+
+        if login_result.requires_2fa:
+            return UnifiedResponse(
+                success=True,
+                data={
+                    "requires_2fa": True,
+                    "mfa_token": login_result.mfa_token
+                }
+            )
+
+        access_token = login_result.access_token
+        refresh_token = login_result.refresh_token
+        session = login_result.session
 
         mobile = is_mobile_client(request)
         if mobile:
@@ -549,6 +581,121 @@ async def reset_password(
     try:
         await auth_service.reset_password(body.token, body.new_password)
         return UnifiedResponse(success=True, data={"message": "Password reset successfully"})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.post("/2fa/setup", response_model=UnifiedResponse)
+async def setup_2fa(
+    current_user: User = Depends(get_current_user),
+    two_factor_service: TwoFactorService = Depends(get_two_factor_service)
+):
+    """Start 2FA setup flow: returns TOTP secret, QR URI, and backup codes."""
+    try:
+        setup_data = await two_factor_service.setup_2fa(current_user)
+        return UnifiedResponse(success=True, data=setup_data)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.post("/2fa/confirm-setup", response_model=UnifiedResponse)
+async def confirm_setup_2fa(
+    body: TwoFactorConfirmRequest,
+    current_user: User = Depends(get_current_user),
+    two_factor_service: TwoFactorService = Depends(get_two_factor_service)
+):
+    """Verify code and enable 2FA."""
+    try:
+        success = await two_factor_service.confirm_setup(current_user, body.totp_code)
+        if not success:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification code")
+        return UnifiedResponse(success=True, data={"message": "Two-factor authentication successfully enabled"})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.post("/2fa/verify", response_model=UnifiedResponse)
+async def verify_2fa(
+    request: Request,
+    response: Response,
+    body: TwoFactorVerifyRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+    two_factor_service: TwoFactorService = Depends(get_two_factor_service),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+):
+    """Complete login flow by verifying TOTP code or backup code."""
+    # Rate Limit checking per IP
+    ip_limit_key = f"2fa_verify_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
+    if await is_rate_limited(ip_limit_key, 5):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many attempts. Try again later.")
+
+    try:
+        ip = get_client_ip(request)
+        ua = request.headers.get("User-Agent")
+        lang = request.headers.get("Accept-Language")
+
+        access_token, refresh_token, session = await auth_service.complete_2fa_login(
+            mfa_token=body.mfa_token,
+            totp_code=body.totp_code,
+            two_factor_service=two_factor_service,
+            ip_address=ip,
+            user_agent=ua,
+            accept_language=lang
+        )
+
+        mobile = is_mobile_client(request)
+        if mobile:
+            return UnifiedResponse(
+                success=True,
+                data={
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "user": {"id": str(session.user_id), "role": "user"}
+                }
+            )
+        else:
+            set_auth_cookies(response, access_token, refresh_token)
+            return UnifiedResponse(success=True, data={"message": "Login successful"})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+
+@router.post("/2fa/backup-codes/regenerate", response_model=UnifiedResponse)
+async def regenerate_backup_codes(
+    current_user: User = Depends(get_current_user),
+    two_factor_service: TwoFactorService = Depends(get_two_factor_service)
+):
+    """Regenerate backup codes for user."""
+    try:
+        codes = await two_factor_service.regenerate_backup_codes(current_user)
+        return UnifiedResponse(success=True, data={"backup_codes": codes})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.post("/2fa/disable", response_model=UnifiedResponse)
+async def disable_2fa(
+    body: TwoFactorDisableRequest,
+    current_user: User = Depends(get_current_user),
+    two_factor_service: TwoFactorService = Depends(get_two_factor_service),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Disable 2FA. Requires password OR valid TOTP code."""
+    try:
+        identity_verified = False
+        
+        if body.totp_code:
+            identity_verified = await two_factor_service.verify_2fa(current_user, body.totp_code)
+        elif body.password:
+            from src.core.security import verify_password
+            identity_verified = verify_password(body.password, current_user.password_hash or "")
+            
+        if not identity_verified:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification credentials")
+
+        await two_factor_service.disable_2fa(current_user)
+        
+        await auth_service.audit_repo.create(
+            action="2fa_disabled",
+            user_id=current_user.id
+        )
+        
+        return UnifiedResponse(success=True, data={"message": "Two-factor authentication successfully disabled"})
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
