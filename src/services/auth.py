@@ -1,6 +1,8 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from src.config import settings
+from src.core.logging import logger
+
 from src.core.security import (
     hash_password,
     verify_password,
@@ -174,7 +176,7 @@ class AuthService:
         await self._check_ip_anomaly(user.id, ip_address, user_agent, fingerprint)
 
         # 3. Create Session
-        session_expiry = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         session = await self.session_repo.create(
             user_id=user.id,
             expires_at=session_expiry,
@@ -230,7 +232,7 @@ class AuthService:
         ip_address: str | None = None,
         user_agent: str | None = None,
         accept_language: str | None = None
-    ) -> tuple[str, str, Session]:
+    ) -> LoginResult:
         """Verify the MFA token and the TOTP/backup code, then issue a session and tokens."""
         # Calculate fingerprint
         fingerprint = calculate_device_fingerprint(user_agent, ip_address, accept_language)
@@ -264,7 +266,7 @@ class AuthService:
         await self._check_ip_anomaly(user.id, ip_address, user_agent, fingerprint)
 
         # 3. Create Session
-        session_expiry = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         session = await self.session_repo.create(
             user_id=user.id,
             expires_at=session_expiry,
@@ -305,7 +307,12 @@ class AuthService:
             metadata_json={"session_id": str(session.id), "mfa_verified": True}
         )
 
-        return access_token, raw_refresh, session
+        return LoginResult(
+            requires_2fa=False,
+            access_token=access_token,
+            refresh_token=raw_refresh,
+            session=session
+        )
 
     async def refresh_tokens(
         self,
@@ -366,12 +373,12 @@ class AuthService:
             raise ValueError("Session revoked due to token reuse detection")
 
         # 3. Check expiration
-        if token.expires_at < datetime.utcnow():
+        if token.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
             REFRESH_COUNTER.labels(status="failed").inc()
             raise ValueError("Refresh token expired")
  
         # 4. Check if session is revoked
-        if session.is_revoked or session.expires_at < datetime.utcnow():
+        if session.is_revoked or session.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
             REFRESH_COUNTER.labels(status="failed").inc()
             raise ValueError("Session is expired or revoked")
 
