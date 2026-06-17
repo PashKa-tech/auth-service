@@ -1,6 +1,7 @@
 import pytest
 import httpx
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import TEST_API_KEY
 
 class MockResponse:
@@ -156,3 +157,45 @@ async def test_oauth_callback_flow_browser(client: AsyncClient, monkeypatch):
     del_resp = await client.delete("/api/v1/auth/me/linked-accounts/google", cookies=cookies)
     assert del_resp.status_code == 400
     assert "unlink" in del_resp.json()["error"]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_2fa_oauth_requires_2fa(client: AsyncClient, db_session: AsyncSession, monkeypatch):
+    from src.config import settings
+    from src.models.user import User
+    from sqlalchemy import select
+
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "google-id")
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_SECRET", "google-secret")
+
+    headers = {"X-Api-Key": TEST_API_KEY}
+
+    # 1. Trigger Google Callback to register user
+    g_resp = await client.get(
+        "/api/v1/auth/oauth/google/callback?code=mock-code&state=http://localhost:3000/dashboard",
+        headers=headers,
+        follow_redirects=False
+    )
+    assert g_resp.status_code == 307
+
+    # 2. Update user to enable 2FA
+    res = await db_session.execute(select(User).where(User.email == "google_test_user@example.com"))
+    user = res.scalar_one()
+    user.is_two_factor_enabled = True
+    user.totp_secret_encrypted = "some_dummy_secret"
+    await db_session.commit()
+
+    # 3. Call callback again (now requiring 2FA)
+    g_resp2 = await client.get(
+        "/api/v1/auth/oauth/google/callback?code=mock-code&state=http://localhost:3000/dashboard",
+        headers=headers,
+        follow_redirects=False
+    )
+    assert g_resp2.status_code == 307
+    location = g_resp2.headers["location"]
+    assert "requires_2fa=true" in location
+    assert "mfa_token=" in location
+
+    # Cookies should NOT be set
+    assert "access_token" not in g_resp2.cookies
+    assert "refresh_token" not in g_resp2.cookies

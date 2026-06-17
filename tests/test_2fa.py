@@ -1,6 +1,7 @@
 import pytest
 import pyotp
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import TEST_API_KEY, TEST_TENANT_ID
 
 @pytest.mark.asyncio
@@ -208,3 +209,117 @@ async def test_2fa_regenerate_and_disable(client: AsyncClient):
     login_resp3 = await client.post("/api/v1/auth/login", headers=headers, json={"email": email, "password": password})
     assert login_resp3.status_code == 200
     assert "access_token" in login_resp3.cookies
+
+
+@pytest.mark.asyncio
+async def test_2fa_mfa_token_expired(client: AsyncClient):
+    import jwt
+    import time
+    from src.config import settings
+
+    # Create an expired mfa_token
+    payload = {
+        "sub": "some_user_id",
+        "tenant_id": str(TEST_TENANT_ID),
+        "type": "mfa_challenge",
+        "iss": settings.APP_NAME,
+        "iat": int(time.time() - 3600),
+        "exp": int(time.time() - 1800),  # expired
+    }
+    expired_token = jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+    headers = {"X-Api-Key": TEST_API_KEY}
+    resp = await client.post(
+        "/api/v1/auth/2fa/verify",
+        headers=headers,
+        json={"mfa_token": expired_token, "totp_code": "123456"}
+    )
+    assert resp.status_code == 401
+    assert "token" in resp.json()["error"]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_2fa_replay_protection(client: AsyncClient):
+    headers = {"X-Api-Key": TEST_API_KEY}
+    email = "replay_2fa@example.com"
+    password = "SuperPassword123!"
+
+    # Register
+    await client.post("/api/v1/auth/register", headers=headers, json={"email": email, "password": password})
+    
+    # Login & Setup
+    login_resp = await client.post("/api/v1/auth/login", headers=headers, json={"email": email, "password": password})
+    cookies = login_resp.cookies
+    
+    setup_resp = await client.post("/api/v1/auth/2fa/setup", headers=headers, cookies=cookies)
+    setup_data = setup_resp.json()["data"]
+    totp_secret = setup_data["totp_secret"]
+    
+    # Confirm setup
+    totp = pyotp.TOTP(totp_secret)
+    valid_code = totp.now()
+    confirm_resp = await client.post(
+        "/api/v1/auth/2fa/confirm-setup",
+        headers=headers,
+        cookies=cookies,
+        json={"totp_code": valid_code}
+    )
+    assert confirm_resp.status_code == 200
+
+    # Get a fresh mfa_token by logging in again
+    login_resp2 = await client.post("/api/v1/auth/login", headers=headers, json={"email": email, "password": password})
+    mfa_token = login_resp2.json()["data"]["mfa_token"]
+
+    # Verify once with the TOTP code
+    valid_code2 = totp.now()
+    verify_resp = await client.post(
+        "/api/v1/auth/2fa/verify",
+        headers=headers,
+        json={"mfa_token": mfa_token, "totp_code": valid_code2}
+    )
+    assert verify_resp.status_code == 200
+
+    # Attempt to verify AGAIN with the SAME TOTP code (replay attack)
+    login_resp3 = await client.post("/api/v1/auth/login", headers=headers, json={"email": email, "password": password})
+    mfa_token3 = login_resp3.json()["data"]["mfa_token"]
+    
+    verify_resp2 = await client.post(
+        "/api/v1/auth/2fa/verify",
+        headers=headers,
+        json={"mfa_token": mfa_token3, "totp_code": valid_code2}
+    )
+    assert verify_resp2.status_code == 401
+    assert "code" in verify_resp2.json()["error"]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_2fa_verify_browser_client_no_api_key(client: AsyncClient):
+    headers = {"X-Api-Key": TEST_API_KEY}
+    email = "browser_2fa@example.com"
+    password = "SuperPassword123!"
+
+    # 1. Register, login, setup & confirm 2FA
+    await client.post("/api/v1/auth/register", headers=headers, json={"email": email, "password": password})
+    login_resp = await client.post("/api/v1/auth/login", headers=headers, json={"email": email, "password": password})
+    cookies = login_resp.cookies
+    
+    setup_resp = await client.post("/api/v1/auth/2fa/setup", headers=headers, cookies=cookies)
+    setup_data = setup_resp.json()["data"]
+    totp_secret = setup_data["totp_secret"]
+    
+    totp = pyotp.TOTP(totp_secret)
+    await client.post("/api/v1/auth/2fa/confirm-setup", headers=headers, cookies=cookies, json={"totp_code": totp.now()})
+
+    # 2. Login again to get mfa_token
+    login_resp2 = await client.post("/api/v1/auth/login", headers=headers, json={"email": email, "password": password})
+    mfa_token = login_resp2.json()["data"]["mfa_token"]
+
+    # 3. Call verify WITHOUT X-Api-Key header (acts like real browser client)
+    verify_resp = await client.post(
+        "/api/v1/auth/2fa/verify",
+        headers={}, # NO headers!
+        json={"mfa_token": mfa_token, "totp_code": totp.now()}
+    )
+    assert verify_resp.status_code == 200
+    assert "access_token" in verify_resp.cookies
+
