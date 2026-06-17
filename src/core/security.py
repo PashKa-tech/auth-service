@@ -60,6 +60,8 @@ def verify_access_token(token: str) -> dict | None:
             algorithms=[settings.JWT_ALGORITHM],
             issuer=settings.APP_NAME
         )
+        if payload.get("type"):
+            return None
         return payload
     except (jwt.PyJWTError, ValueError):
         return None
