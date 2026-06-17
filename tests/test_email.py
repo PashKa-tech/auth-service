@@ -1,0 +1,139 @@
+import pytest
+import uuid
+from httpx import AsyncClient
+from tests.conftest import TEST_API_KEY, TEST_TENANT_ID
+from src.core.redis import init_redis
+from src.models.user import User
+from sqlalchemy import select
+
+@pytest.fixture(autouse=True)
+async def clean_redis():
+    redis_client = await init_redis()
+    await redis_client.flushdb()
+    yield
+    await redis_client.flushdb()
+
+@pytest.mark.asyncio
+async def test_email_verification_flow(client: AsyncClient, db_session):
+    headers = {"X-Api-Key": TEST_API_KEY}
+    email = "verify_test@example.com"
+    password = "SuperPassword123!"
+
+    # 1. Register User
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        headers=headers,
+        json={"email": email, "password": password}
+    )
+    assert reg_resp.status_code == 201
+    user_id = reg_resp.json()["data"]["id"]
+
+    # Verify initially not verified
+    me_check = await db_session.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    user_obj = me_check.scalar_one()
+    assert user_obj.is_verified is False
+
+    # 2. Login to get cookies/token
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        headers=headers,
+        json={"email": email, "password": password}
+    )
+    assert login_resp.status_code == 200
+    cookies = login_resp.cookies
+
+    # 3. Request email verification
+    req_verify_resp = await client.post(
+        "/api/v1/auth/request-email-verification",
+        headers=headers,
+        cookies=cookies
+    )
+    assert req_verify_resp.status_code == 200
+    assert req_verify_resp.json()["success"] is True
+
+    # 4. Grab the verification token from Redis
+    redis_client = await init_redis()
+    keys = await redis_client.keys("email_verify:*")
+    assert len(keys) == 1
+    verify_key = keys[0]
+    token = verify_key.split(":")[1]
+
+    # Verify that the value stored in Redis is the user_id
+    val = await redis_client.get(verify_key)
+    assert val == user_id
+
+    # 5. Call GET /verify-email?token=<token>&tenant_id=<tenant_id>
+    verify_resp = await client.get(
+        f"/api/v1/auth/verify-email?token={token}&tenant_id={TEST_TENANT_ID}"
+    )
+    assert verify_resp.status_code == 200
+    assert verify_resp.json()["success"] is True
+
+    # Verify user is verified in DB
+    await db_session.refresh(user_obj)
+    assert user_obj.is_verified is True
+
+    # Verify token is deleted from Redis
+    assert await redis_client.get(verify_key) is None
+
+
+@pytest.mark.asyncio
+async def test_password_reset_flow(client: AsyncClient, db_session):
+    headers = {"X-Api-Key": TEST_API_KEY}
+    email = "reset_test@example.com"
+    password = "OldPassword123!"
+    new_password = "NewPassword123!"
+
+    # 1. Register User
+    reg_resp = await client.post(
+        "/api/v1/auth/register",
+        headers=headers,
+        json={"email": email, "password": password}
+    )
+    assert reg_resp.status_code == 201
+    user_id = reg_resp.json()["data"]["id"]
+
+    # 2. Request Password Reset
+    forgot_resp = await client.post(
+        "/api/v1/auth/forgot-password",
+        headers=headers,
+        json={"email": email}
+    )
+    assert forgot_resp.status_code == 200
+    assert forgot_resp.json()["success"] is True
+
+    # 3. Grab reset token from Redis
+    redis_client = await init_redis()
+    keys = await redis_client.keys("password_reset:*")
+    assert len(keys) == 1
+    reset_key = keys[0]
+    token = reset_key.split(":")[1]
+
+    # 4. Perform Password Reset using token
+    # This checks if resolve_tenant resolves the tenant context from the POST body token
+    reset_resp = await client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": token, "new_password": new_password}
+    )
+    assert reset_resp.status_code == 200
+    assert reset_resp.json()["success"] is True
+
+    # Verify token is deleted from Redis
+    assert await redis_client.get(reset_key) is None
+
+    # 5. Try logging in with old password (should fail)
+    login_old = await client.post(
+        "/api/v1/auth/login",
+        headers=headers,
+        json={"email": email, "password": password}
+    )
+    assert login_old.status_code == 401
+
+    # 6. Try logging in with new password (should succeed)
+    login_new = await client.post(
+        "/api/v1/auth/login",
+        headers=headers,
+        json={"email": email, "password": new_password}
+    )
+    assert login_new.status_code == 200
+    assert login_new.json()["success"] is True
