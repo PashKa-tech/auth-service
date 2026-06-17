@@ -1,0 +1,294 @@
+import uuid
+from datetime import datetime, timedelta
+from src.config import settings
+from src.core.security import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    generate_opaque_token,
+    hash_opaque_token
+)
+from src.core.fingerprint import calculate_device_fingerprint
+from src.repositories.user import UserRepository
+from src.repositories.session import SessionRepository
+from src.repositories.token import TokenRepository
+from src.repositories.audit import AuditRepository
+from src.models.user import User
+from src.models.session import Session
+
+class AuthService:
+    def __init__(
+        self,
+        user_repo: UserRepository,
+        session_repo: SessionRepository,
+        token_repo: TokenRepository,
+        audit_repo: AuditRepository
+    ):
+        self.user_repo = user_repo
+        self.session_repo = session_repo
+        self.token_repo = token_repo
+        self.audit_repo = audit_repo
+        self.tenant_id = user_repo.tenant_id
+
+    async def register_user(self, email: str, password: str, role: str = "user") -> User:
+        """Register a new user in the system."""
+        # 1. Check if user already exists
+        existing_user = await self.user_repo.get_by_email(email)
+        if existing_user:
+            # Note: For production we might want to prevent email enumeration,
+            # but for a register endpoint, standard behavior is returning conflict.
+            raise ValueError("Email already registered")
+
+        # 2. Hash password and create user
+        pwd_hash = hash_password(password)
+        user = await self.user_repo.create(
+            email=email,
+            password_hash=pwd_hash,
+            role=role,
+            is_verified=False # Requires verification link (Phase 2)
+        )
+
+        # 3. Write Audit Log
+        await self.audit_repo.create(
+            action="user_registered",
+            user_id=user.id,
+            metadata_json={"email": email.lower().strip(), "role": role}
+        )
+
+        return user
+
+    async def login_user(
+        self,
+        email: str,
+        password: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        accept_language: str | None = None
+    ) -> tuple[str, str, Session]:
+        """Authenticate user and issue new session and tokens."""
+        # Calculate fingerprint
+        fingerprint = calculate_device_fingerprint(user_agent, ip_address, accept_language)
+
+        # 1. Fetch user
+        user = await self.user_repo.get_by_email(email)
+        if not user or not user.password_hash or not verify_password(password, user.password_hash):
+            await self.audit_repo.create(
+                action="login_failed",
+                ip_address=ip_address,
+                user_agent=user_agent,
+                device_fingerprint=fingerprint,
+                metadata_json={"email": email.lower().strip(), "reason": "invalid_credentials"}
+            )
+            raise ValueError("Invalid email or password")
+
+        # 2. Verify active status
+        if not user.is_active:
+            await self.audit_repo.create(
+                action="login_failed",
+                user_id=user.id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                device_fingerprint=fingerprint,
+                metadata_json={"reason": "account_deactivated"}
+            )
+            raise ValueError("Account is deactivated")
+
+        # 3. Create Session
+        session_expiry = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        session = await self.session_repo.create(
+            user_id=user.id,
+            expires_at=session_expiry,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_fingerprint=fingerprint
+        )
+
+        # 4. Generate & Store Refresh Token (SHA-256 hashed)
+        raw_refresh = generate_opaque_token()
+        refresh_hash = hash_opaque_token(raw_refresh)
+        family_id = str(uuid.uuid4())
+        
+        await self.token_repo.create(
+            session_id=session.id,
+            token_hash=refresh_hash,
+            family_id=family_id,
+            expires_at=session_expiry
+        )
+
+        # 5. Generate Access Token (JWT)
+        access_token = create_access_token(
+            subject=user.id,
+            tenant_id=self.tenant_id,
+            role=user.role,
+            session_id=session.id
+        )
+
+        # 6. Audit Log
+        await self.audit_repo.create(
+            action="login_success",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_fingerprint=fingerprint,
+            metadata_json={"session_id": str(session.id)}
+        )
+
+        return access_token, raw_refresh, session
+
+    async def refresh_tokens(
+        self,
+        raw_refresh_token: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        accept_language: str | None = None
+    ) -> tuple[str, str]:
+        """Rotate Refresh Token and issue new Access Token."""
+        fingerprint = calculate_device_fingerprint(user_agent, ip_address, accept_language)
+        token_hash = hash_opaque_token(raw_refresh_token)
+
+        # 1. Look up refresh token
+        token = await self.token_repo.get_by_hash(token_hash)
+        if not token:
+            await self.audit_repo.create(
+                action="refresh_token_not_found",
+                ip_address=ip_address,
+                user_agent=user_agent,
+                device_fingerprint=fingerprint
+            )
+            raise ValueError("Invalid refresh token")
+
+        # Get session details
+        session = await self.session_repo.get_by_id(token.session_id)
+        if not session:
+            raise ValueError("Session not found")
+
+        # 2. Check for Reuse Attack (STRICT SECURITY)
+        if token.is_revoked:
+            # REUSE ATTACK DETECTED!
+            # Revoke all tokens in family
+            await self.token_repo.revoke_family(token.family_id)
+            # Revoke current session
+            await self.session_repo.revoke(session.id)
+            
+            # Log critical security audit event
+            await self.audit_repo.create(
+                action="refresh_reuse_attack",
+                user_id=session.user_id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                device_fingerprint=fingerprint,
+                metadata_json={
+                    "session_id": str(session.id),
+                    "family_id": token.family_id,
+                    "attempted_token_id": str(token.id)
+                }
+            )
+            raise ValueError("Session revoked due to token reuse detection")
+
+        # 3. Check expiration
+        if token.expires_at < datetime.utcnow():
+            raise ValueError("Refresh token expired")
+
+        # 4. Check if session is revoked
+        if session.is_revoked or session.expires_at < datetime.utcnow():
+            raise ValueError("Session is expired or revoked")
+
+        # 5. Revoke current token (Mark as used)
+        token.is_revoked = True
+        await self.token_repo.revoke(token.id)
+
+        # 6. Issue new Refresh Token (Same family)
+        new_raw_refresh = generate_opaque_token()
+        new_refresh_hash = hash_opaque_token(new_raw_refresh)
+        
+        await self.token_repo.create(
+            session_id=session.id,
+            token_hash=new_refresh_hash,
+            family_id=token.family_id,
+            expires_at=token.expires_at # Keep same expiry as original token/session
+        )
+
+        # 7. Fetch user to retrieve current role
+        user = await self.user_repo.get_by_id(session.user_id)
+        if not user or not user.is_active:
+            raise ValueError("User is inactive or not found")
+
+        # 8. Issue new Access Token (JWT)
+        new_access_token = create_access_token(
+            subject=user.id,
+            tenant_id=self.tenant_id,
+            role=user.role,
+            session_id=session.id
+        )
+
+        # 9. Audit Log
+        await self.audit_repo.create(
+            action="token_refreshed",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_fingerprint=fingerprint,
+            metadata_json={"session_id": str(session.id)}
+        )
+
+        return new_access_token, new_raw_refresh
+
+    async def logout_user(self, session_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+        """Revoke session and all associated refresh tokens."""
+        session = await self.session_repo.get_by_id(session_id)
+        if not session or session.user_id != user_id:
+            return False
+
+        # Revoke session
+        await self.session_repo.revoke(session.id)
+
+        # Revoke tokens associated with session
+        # We can just revoke by setting is_revoked for family
+        # (Though technically it's safer to revoke family_id)
+        # Find any active token for this session to get family_id
+        # For simplicity, we just revoke all tokens linked to this session.
+        # But wait! A session can have multiple tokens if rotated.
+        # We can write a quick update statement in database.
+        # Since we have session.id, let's revoke all refresh tokens for this session.
+        # Let's add a helper to token_repo if needed or do it here.
+        # Actually, TokenRepository.revoke_family works by family_id.
+        # But we can also query the database or update.
+        # Let's just find the token(s) and revoke them.
+        # In our implementation of TokenRepository, we have access to db.
+        from sqlalchemy import update
+        from src.models.token import RefreshToken
+        await self.token_repo.db.execute(
+            update(RefreshToken)
+            .where(RefreshToken.session_id == session.id)
+            .values(is_revoked=True)
+        )
+
+        await self.audit_repo.create(
+            action="user_logged_out",
+            user_id=user_id,
+            metadata_json={"session_id": str(session.id)}
+        )
+        return True
+
+    async def logout_all_sessions(self, user_id: uuid.UUID) -> int:
+        """Revoke all sessions and tokens for user."""
+        # Revoke all sessions
+        revoked_count = await self.session_repo.revoke_all_by_user(user_id)
+        
+        # Revoke all refresh tokens for these sessions
+        from sqlalchemy import update, select
+        from src.models.token import RefreshToken
+        from src.models.session import Session
+        await self.token_repo.db.execute(
+            update(RefreshToken)
+            .where(RefreshToken.session_id.in_(
+                select(Session.id).where(Session.user_id == user_id)
+            ))
+            .values(is_revoked=True)
+        )
+
+        await self.audit_repo.create(
+            action="user_logged_out_all_devices",
+            user_id=user_id
+        )
+        return revoked_count
