@@ -23,6 +23,13 @@ class TwoFactorService:
         if user.tenant_id != self.user_repo.tenant_id:
             raise ValueError("Cross-tenant 2FA setup attempt blocked.")
 
+        if user.is_two_factor_enabled:
+            raise ValueError("2FA is already enabled.")
+
+        if user.totp_secret_encrypted:
+            from src.core.logging import logger
+            logger.warning(f"User {user.id} has an unconfirmed pending 2FA setup. Overwriting it.")
+
         # Generate TOTP secret
         secret = generate_totp_secret()
         encrypted_secret = encrypt_secret(secret)
@@ -76,6 +83,12 @@ class TwoFactorService:
         if user.totp_secret_encrypted:
             secret = decrypt_secret(user.totp_secret_encrypted)
             if verify_totp_code(secret, code):
+                from src.core.redis import init_redis
+                redis_client = await init_redis()
+                key = f"totp_used:{user.id}:{code.strip()}"
+                is_unique = await redis_client.set(key, "1", ex=60, nx=True)
+                if not is_unique:
+                    return False
                 return True
 
         # 2. Try Backup code
