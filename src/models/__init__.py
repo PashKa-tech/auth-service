@@ -5,6 +5,7 @@ from src.models.session import Session
 from src.models.token import RefreshToken
 from src.models.oauth import OAuthAccount
 from src.models.audit import AuditLog
+from src.models.two_factor import TwoFactorBackupCode
 
 __all__ = [
     "Base",
@@ -14,4 +15,5 @@ __all__ = [
     "RefreshToken",
     "OAuthAccount",
     "AuditLog",
+    "TwoFactorBackupCode",
 ]
