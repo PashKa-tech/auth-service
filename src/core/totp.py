@@ -9,6 +9,8 @@ from src.core.logging import logger
 # Initialize Fernet key
 _key = settings.TOTP_ENCRYPTION_KEY
 if not _key:
+    if settings.ENV == "production":
+        raise RuntimeError("TOTP_ENCRYPTION_KEY must be set in production environment!")
     # Auto-generate key for dev/testing if not configured
     logger.warning("TOTP_ENCRYPTION_KEY is not set. Generating a temporary key for this run. Do not use this in production!")
     _key = Fernet.generate_key().decode()
@@ -18,6 +20,8 @@ try:
     # Ensure key is valid Fernet key
     fernet = Fernet(_key.encode())
 except Exception as e:
+    if settings.ENV == "production":
+        raise RuntimeError(f"Invalid TOTP_ENCRYPTION_KEY format in production: {str(e)}")
     logger.error("Invalid TOTP_ENCRYPTION_KEY format. Generating a fallback key.", error=str(e))
     fernet = Fernet(Fernet.generate_key())
 
