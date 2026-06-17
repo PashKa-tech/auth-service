@@ -1,6 +1,6 @@
 import uuid
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 from fastapi import Request, Depends, HTTPException, status
 from fastapi.security import APIKeyHeader
@@ -160,6 +160,18 @@ async def resolve_tenant(
         except Exception:
             pass
 
+    if not tenant_id and request.method == "POST" and request.url.path.endswith("/2fa/verify"):
+        try:
+            body_json = await request.json()
+            mfa_token_body = body_json.get("mfa_token")
+            if mfa_token_body:
+                from src.core.security import verify_mfa_token
+                payload = verify_mfa_token(mfa_token_body)
+                if payload and "tenant_id" in payload:
+                    tenant_id = uuid.UUID(payload["tenant_id"])
+        except Exception:
+            pass
+
     if not tenant_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -283,7 +295,7 @@ async def get_current_user(
         select(DBSession).where(DBSession.id == session_uuid, DBSession.is_revoked == False)
     )
     session = result_session.scalar_one_or_none()
-    if not session or session.expires_at < datetime.utcnow():
+    if not session or session.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session has been revoked or expired"
