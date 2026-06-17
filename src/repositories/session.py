@@ -79,3 +79,18 @@ class SessionRepository(TenantScopedRepository):
         )
         await self.db.flush()
         return result.rowcount
+
+    async def get_recent_by_user(self, user_id: uuid.UUID, limit: int = 5) -> list[Session]:
+        """Get the most recent sessions for a user, sorted by creation time descending."""
+        result = await self.db.execute(
+            select(Session)
+            .join(User, Session.user_id == User.id)
+            .where(
+                Session.user_id == user_id,
+                User.tenant_id == self.tenant_id
+            )
+            .order_by(Session.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+

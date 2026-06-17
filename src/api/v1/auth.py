@@ -40,6 +40,15 @@ class UnifiedResponse(BaseModel):
 
 # --- Helper Functions ---
 
+def get_client_ip(request: Request) -> str | None:
+    """Extract client IP, taking X-Forwarded-For header into account for proxies."""
+    ip = request.headers.get("X-Forwarded-For")
+    if ip:
+        if "," in ip:
+            return ip.split(",")[0].strip()
+        return ip.strip()
+    return request.client.host if request.client else None
+
 def is_mobile_client(request: Request) -> bool:
     """Helper to detect if client is mobile/API based on header."""
     return request.headers.get("X-Client-Type") == "mobile"
@@ -81,7 +90,7 @@ async def register(
 ):
     # Rate Limit checking: Global Tenant Limit & Register Rate Limit
     global_limit_key = f"tenant_rpm:{tenant_id}"
-    ip_limit_key = f"register_ip:{tenant_id}:{request.client.host if request.client else 'unknown'}"
+    ip_limit_key = f"register_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
     
     if await is_rate_limited(global_limit_key, 1000): # 1000 requests per tenant per minute
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Tenant rate limit exceeded")
@@ -107,7 +116,7 @@ async def login(
 ):
     # Rate Limit checking: Global Tenant & Login IP
     global_limit_key = f"tenant_rpm:{tenant_id}"
-    ip_limit_key = f"login_ip:{tenant_id}:{request.client.host if request.client else 'unknown'}"
+    ip_limit_key = f"login_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
     
     if await is_rate_limited(global_limit_key, 1000):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Tenant rate limit exceeded")
@@ -115,7 +124,7 @@ async def login(
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts. Try again later.")
 
     try:
-        ip = request.client.host if request.client else None
+        ip = get_client_ip(request)
         ua = request.headers.get("User-Agent")
         lang = request.headers.get("Accept-Language")
         
@@ -167,7 +176,7 @@ async def refresh(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token missing")
 
     try:
-        ip = request.client.host if request.client else None
+        ip = get_client_ip(request)
         ua = request.headers.get("User-Agent")
         lang = request.headers.get("Accept-Language")
         
@@ -345,7 +354,7 @@ async def oauth_callback(
         from src.core.security import create_access_token, generate_opaque_token, hash_opaque_token
         from src.core.fingerprint import calculate_device_fingerprint
         
-        ip = request.client.host if request.client else None
+        ip = get_client_ip(request)
         ua = request.headers.get("User-Agent")
         lang = request.headers.get("Accept-Language")
         fingerprint = calculate_device_fingerprint(ua, ip, lang)
@@ -479,7 +488,7 @@ async def request_email_verification(
 ):
     """Trigger email verification link sending."""
     # Rate Limit: IP limit (3 per min) and User limit (2 per min)
-    ip_limit_key = f"email_verify_req_ip:{tenant_id}:{request.client.host if request.client else 'unknown'}"
+    ip_limit_key = f"email_verify_req_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
     user_limit_key = f"email_verify_req_user:{tenant_id}:{current_user.id}"
     
     if await is_rate_limited(ip_limit_key, 3):
@@ -514,7 +523,7 @@ async def forgot_password(
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """Initiate password recovery."""
-    ip_limit_key = f"forgot_password_ip:{tenant_id}:{request.client.host if request.client else 'unknown'}"
+    ip_limit_key = f"forgot_password_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
     if await is_rate_limited(ip_limit_key, 3):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many password reset attempts. Try again later.")
 
@@ -533,7 +542,7 @@ async def reset_password(
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """Perform password reset using token."""
-    ip_limit_key = f"reset_password_ip:{tenant_id}:{request.client.host if request.client else 'unknown'}"
+    ip_limit_key = f"reset_password_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
     if await is_rate_limited(ip_limit_key, 5):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many password reset attempts. Try again later.")
 

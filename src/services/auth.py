@@ -18,6 +18,7 @@ from src.services.email import EmailService
 from src.models.user import User
 from src.models.session import Session
 from src.core.metrics import LOGIN_COUNTER, REFRESH_COUNTER, ACTIVE_SESSIONS
+from src.core.geoip import get_country_from_ip
 
 class AuthService:
     def __init__(
@@ -36,6 +37,44 @@ class AuthService:
         self.oauth_repo = oauth_repo
         self.email_service = email_service
         self.tenant_id = user_repo.tenant_id
+
+    async def _check_ip_anomaly(
+        self,
+        user_id: uuid.UUID,
+        current_ip: str | None,
+        user_agent: str | None,
+        fingerprint: str | None
+    ) -> None:
+        """Check if the current login/refresh IP is an anomaly compared to the last 5 sessions."""
+        if not current_ip:
+            return
+            
+        recent_sessions = await self.session_repo.get_recent_by_user(user_id, limit=5)
+        if not recent_sessions:
+            return
+            
+        current_country = get_country_from_ip(current_ip)
+        
+        # Gather countries from recent sessions
+        past_countries = set()
+        for sess in recent_sessions:
+            if sess.ip_address and sess.ip_address != current_ip:
+                past_countries.add(get_country_from_ip(sess.ip_address))
+                
+        # If we have past countries, and current country is not in that list
+        if past_countries and current_country not in past_countries:
+            await self.audit_repo.create(
+                action="suspicious_login_location",
+                user_id=user_id,
+                ip_address=current_ip,
+                user_agent=user_agent,
+                device_fingerprint=fingerprint,
+                metadata_json={
+                    "current_country": current_country,
+                    "past_countries": list(past_countries)
+                }
+            )
+
 
     async def register_user(self, email: str, password: str, role: str = "user") -> User:
         """Register a new user in the system."""
@@ -101,6 +140,9 @@ class AuthService:
                 metadata_json={"reason": "account_deactivated"}
             )
             raise ValueError("Account is deactivated")
+
+        # Check for location anomaly (mock GeoIP)
+        await self._check_ip_anomaly(user.id, ip_address, user_agent, fingerprint)
 
         # 3. Create Session
         session_expiry = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
@@ -213,6 +255,9 @@ class AuthService:
         if session.is_revoked or session.expires_at < datetime.utcnow():
             REFRESH_COUNTER.labels(status="failed").inc()
             raise ValueError("Session is expired or revoked")
+
+        # Check for location anomaly (mock GeoIP)
+        await self._check_ip_anomaly(session.user_id, ip_address, user_agent, fingerprint)
 
         # 5. Revoke current token (Mark as used)
         token.is_revoked = True
