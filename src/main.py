@@ -13,6 +13,7 @@ from src.core.redis import init_redis, close_redis
 from src.core.metrics import REQUEST_LATENCY
 from src.api.v1.auth import router as auth_router
 from src.api.v1.health import router as health_router
+from src.middlewares.rbac import RBACMiddleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,6 +33,8 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+app.add_middleware(RBACMiddleware)
 
 # --- Middlewares ---
 
