@@ -1,0 +1,74 @@
+import uuid
+import hashlib
+import secrets
+from datetime import datetime, timedelta
+import jwt
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
+from src.config import settings
+
+# Initialize Argon2id password hasher with configured parameters
+ph = PasswordHasher(
+    time_cost=settings.ARGON2_TIME_COST,
+    memory_cost=settings.ARGON2_MEMORY_COST,
+    parallelism=settings.ARGON2_PARALLELISM,
+)
+
+def hash_password(password: str) -> str:
+    """Hash a password using Argon2id."""
+    return ph.hash(password)
+
+def verify_password(password: str, hashed_password: str) -> bool:
+    """Verify a password against its Argon2id hash."""
+    try:
+        return ph.verify(hashed_password, password)
+    except VerifyMismatchError:
+        return False
+
+def create_access_token(
+    subject: str | uuid.UUID,
+    tenant_id: uuid.UUID,
+    role: str,
+    session_id: uuid.UUID,
+    expires_delta: timedelta | None = None
+) -> str:
+    """Generate a short-lived JWT Access Token."""
+    now = datetime.utcnow()
+    if expires_delta:
+        expire = now + expires_delta
+    else:
+        expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    payload = {
+        "sub": str(subject),
+        "tenant_id": str(tenant_id),
+        "role": role,
+        "session_id": str(session_id),
+        "iss": settings.APP_NAME,
+        "iat": int(now.timestamp()),
+        "exp": int(expire.timestamp()),
+    }
+    
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+def verify_access_token(token: str) -> dict | None:
+    """Verify and decode a JWT Access Token."""
+    try:
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM],
+            issuer=settings.APP_NAME
+        )
+        return payload
+    except (jwt.PyJWTError, ValueError):
+        return None
+
+def generate_opaque_token() -> str:
+    """Generate a cryptographically secure 256-bit entropy token."""
+    # secrets.token_urlsafe(32) generates about 43 chars containing 256 bits of entropy
+    return secrets.token_urlsafe(32)
+
+def hash_opaque_token(token: str) -> str:
+    """Hash an opaque token using SHA-256 for secure database storage."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
