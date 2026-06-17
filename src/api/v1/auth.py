@@ -381,8 +381,7 @@ async def oauth_callback(
         )
         
         # 3. Authenticate user by creating Session (mimics AuthService.login_user)
-        # Create session
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         from src.core.security import create_access_token, generate_opaque_token, hash_opaque_token
         from src.core.fingerprint import calculate_device_fingerprint
         
@@ -391,7 +390,39 @@ async def oauth_callback(
         lang = request.headers.get("Accept-Language")
         fingerprint = calculate_device_fingerprint(ua, ip, lang)
         
-        session_expiry = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        # 2FA Check
+        if user.is_two_factor_enabled:
+            from src.core.security import create_mfa_token
+            mfa_token = create_mfa_token(user.id, tenant_id)
+            await auth_service.audit_repo.create(
+                action="2fa_challenge_issued",
+                user_id=user.id,
+                ip_address=ip,
+                user_agent=ua,
+                device_fingerprint=fingerprint,
+                metadata_json={"method": f"oauth_{provider}"}
+            )
+            mobile = is_mobile_client(request)
+            if mobile:
+                return UnifiedResponse(
+                    success=True,
+                    data={
+                        "requires_2fa": True,
+                        "mfa_token": mfa_token
+                    }
+                )
+            else:
+                redirect_url = "http://localhost:3000"
+                if state and (state.startswith("http://") or state.startswith("https://")):
+                    redirect_url = state
+                separator = "&" if "?" in redirect_url else "?"
+                redirect_resp = RedirectResponse(
+                    url=f"{redirect_url}{separator}requires_2fa=true&mfa_token={mfa_token}"
+                )
+                return redirect_resp
+
+        # Create session
+        session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         session = await auth_service.session_repo.create(
             user_id=user.id,
             expires_at=session_expiry,
@@ -586,10 +617,19 @@ async def reset_password(
 
 @router.post("/2fa/setup", response_model=UnifiedResponse)
 async def setup_2fa(
+    request: Request,
     current_user: User = Depends(get_current_user),
-    two_factor_service: TwoFactorService = Depends(get_two_factor_service)
+    two_factor_service: TwoFactorService = Depends(get_two_factor_service),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """Start 2FA setup flow: returns TOTP secret, QR URI, and backup codes."""
+    ip_limit_key = f"2fa_setup_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
+    user_limit_key = f"2fa_setup_user:{tenant_id}:{current_user.id}"
+    if await is_rate_limited(ip_limit_key, 5):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many attempts. Try again later.")
+    if await is_rate_limited(user_limit_key, 5):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many attempts. Try again later.")
+
     try:
         setup_data = await two_factor_service.setup_2fa(current_user)
         return UnifiedResponse(success=True, data=setup_data)
@@ -598,11 +638,20 @@ async def setup_2fa(
 
 @router.post("/2fa/confirm-setup", response_model=UnifiedResponse)
 async def confirm_setup_2fa(
+    request: Request,
     body: TwoFactorConfirmRequest,
     current_user: User = Depends(get_current_user),
-    two_factor_service: TwoFactorService = Depends(get_two_factor_service)
+    two_factor_service: TwoFactorService = Depends(get_two_factor_service),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """Verify code and enable 2FA."""
+    ip_limit_key = f"2fa_confirm_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
+    user_limit_key = f"2fa_confirm_user:{tenant_id}:{current_user.id}"
+    if await is_rate_limited(ip_limit_key, 5):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many attempts. Try again later.")
+    if await is_rate_limited(user_limit_key, 5):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many attempts. Try again later.")
+
     try:
         success = await two_factor_service.confirm_setup(current_user, body.totp_code)
         if not success:
@@ -631,7 +680,7 @@ async def verify_2fa(
         ua = request.headers.get("User-Agent")
         lang = request.headers.get("Accept-Language")
 
-        access_token, refresh_token, session = await auth_service.complete_2fa_login(
+        login_result = await auth_service.complete_2fa_login(
             mfa_token=body.mfa_token,
             totp_code=body.totp_code,
             two_factor_service=two_factor_service,
@@ -639,6 +688,10 @@ async def verify_2fa(
             user_agent=ua,
             accept_language=lang
         )
+
+        access_token = login_result.access_token
+        refresh_token = login_result.refresh_token
+        session = login_result.session
 
         mobile = is_mobile_client(request)
         if mobile:
