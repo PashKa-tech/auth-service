@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request, Response, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from src.core.context import get_request_id
-from src.api.deps import get_auth_service, get_current_user, resolve_tenant, get_oauth_service_dep
+from src.api.deps import get_auth_service, get_current_user, resolve_tenant, get_oauth_service_dep, RoleChecker
 from src.services.auth import AuthService
 from src.services.oauth import OAuthService
 from src.models.user import User
@@ -542,4 +542,10 @@ async def reset_password(
         return UnifiedResponse(success=True, data={"message": "Password reset successfully"})
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.get("/admin-only", response_model=UnifiedResponse)
+async def admin_only(current_user: User = Depends(RoleChecker(["admin"]))):
+    """Admin-only endpoint to verify RBAC."""
+    return UnifiedResponse(success=True, data={"message": "Welcome, Admin!"})
+
 
