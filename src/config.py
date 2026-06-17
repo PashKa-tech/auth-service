@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     GITHUB_CLIENT_SECRET: str | None = Field(default=None)
     GITHUB_REDIRECT_URI: str = Field(default="http://localhost:8000/api/v1/auth/oauth/github/callback")
     
+    # SMTP / Email Settings
+    SMTP_HOST: str = Field(default="localhost")
+    SMTP_PORT: int = Field(default=1025)
+    SMTP_USER: str | None = Field(default=None)
+    SMTP_PASSWORD: str | None = Field(default=None)
+    SMTP_FROM_EMAIL: str = Field(default="noreply@authservice.com")
+    USE_MOCK_EMAIL: bool = Field(default=True)
+    
     model_config = SettingsConfigDict(
         env_file=os.getenv("ENV_FILE", ".env.dev"),
         env_file_encoding="utf-8",
