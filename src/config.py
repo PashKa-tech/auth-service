@@ -34,6 +34,16 @@ class Settings(BaseSettings):
     # Super Admin / Provisioning
     SUPER_ADMIN_API_KEY: str = Field(default="super-admin-secret-key-change-me")
     
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str | None = Field(default=None)
+    GOOGLE_CLIENT_SECRET: str | None = Field(default=None)
+    GOOGLE_REDIRECT_URI: str = Field(default="http://localhost:8000/api/v1/auth/oauth/google/callback")
+    
+    # GitHub OAuth
+    GITHUB_CLIENT_ID: str | None = Field(default=None)
+    GITHUB_CLIENT_SECRET: str | None = Field(default=None)
+    GITHUB_REDIRECT_URI: str = Field(default="http://localhost:8000/api/v1/auth/oauth/github/callback")
+    
     model_config = SettingsConfigDict(
         env_file=os.getenv("ENV_FILE", ".env.dev"),
         env_file_encoding="utf-8",

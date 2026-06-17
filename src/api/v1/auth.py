@@ -3,9 +3,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request, Response, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from src.core.context import get_request_id
-from src.api.deps import get_auth_service, get_current_user, resolve_tenant
+from src.api.deps import get_auth_service, get_current_user, resolve_tenant, get_oauth_service_dep
 from src.services.auth import AuthService
+from src.services.oauth import OAuthService
 from src.models.user import User
+from fastapi.responses import RedirectResponse
 from src.core.rate_limit import is_rate_limited
 from src.core.logging import logger
 
@@ -267,3 +269,173 @@ async def list_sessions(
         for s in sessions
     ]
     return UnifiedResponse(success=True, data=data)
+
+# --- OAuth Routes ---
+
+@router.get("/oauth/{provider}")
+async def oauth_login(
+    provider: str,
+    state: str | None = None,
+    oauth_service: OAuthService = Depends(get_oauth_service_dep),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+):
+    """Initiate OAuth flow by redirecting client to provider authorize page."""
+    # If no state, generate random uuid
+    oauth_state = state or str(uuid.uuid4())
+    try:
+        auth_url = oauth_service.get_authorization_url(provider, oauth_state)
+        return RedirectResponse(url=auth_url)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.get("/oauth/{provider}/callback")
+async def oauth_callback(
+    provider: str,
+    code: str,
+    state: str | None = None,
+    request: Request = None,
+    response: Response = None,
+    oauth_service: OAuthService = Depends(get_oauth_service_dep),
+    auth_service: AuthService = Depends(get_auth_service),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+):
+    """Handle OAuth provider callback, resolve user and issue session/tokens."""
+    try:
+        # 1. Fetch profile information from Google/GitHub
+        user_info = await oauth_service.get_user_info_from_provider(provider, code)
+        
+        # 2. Resolve account (linking strategy)
+        user = await oauth_service.resolve_oauth_user(
+            provider=provider,
+            provider_user_id=user_info["provider_user_id"],
+            email=user_info["email"],
+            auth_service=auth_service
+        )
+        
+        # 3. Authenticate user by creating Session (mimics AuthService.login_user)
+        # Create session
+        from datetime import datetime, timedelta
+        from src.core.security import create_access_token, generate_opaque_token, hash_opaque_token
+        from src.core.fingerprint import calculate_device_fingerprint
+        
+        ip = request.client.host if request.client else None
+        ua = request.headers.get("User-Agent")
+        lang = request.headers.get("Accept-Language")
+        fingerprint = calculate_device_fingerprint(ua, ip, lang)
+        
+        session_expiry = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        session = await auth_service.session_repo.create(
+            user_id=user.id,
+            expires_at=session_expiry,
+            ip_address=ip,
+            user_agent=ua,
+            device_fingerprint=fingerprint
+        )
+        
+        # Create Refresh Token
+        raw_refresh = generate_opaque_token()
+        refresh_hash = hash_opaque_token(raw_refresh)
+        family_id = str(uuid.uuid4())
+        
+        await auth_service.token_repo.create(
+            session_id=session.id,
+            token_hash=refresh_hash,
+            family_id=family_id,
+            expires_at=session_expiry
+        )
+        
+        # Create Access Token
+        access_token = create_access_token(
+            subject=user.id,
+            tenant_id=tenant_id,
+            role=user.role,
+            session_id=session.id
+        )
+        
+        await auth_service.audit_repo.create(
+            action="login_success",
+            user_id=user.id,
+            ip_address=ip,
+            user_agent=ua,
+            device_fingerprint=fingerprint,
+            metadata_json={"session_id": str(session.id), "method": f"oauth_{provider}"}
+        )
+
+        mobile = is_mobile_client(request)
+        if mobile:
+            # For mobile, we return the tokens directly or redirect to a custom app scheme.
+            # In our system contract, we can return a JSON with tokens
+            return UnifiedResponse(
+                success=True,
+                data={
+                    "access_token": access_token,
+                    "refresh_token": raw_refresh,
+                    "user": {"id": str(user.id), "role": user.role}
+                }
+            )
+        else:
+            # Set cookies and redirect back to client frontend
+            # We can read the client redirect URI from state if it starts with http
+            redirect_url = "http://localhost:3000" # Default fallback
+            if state and (state.startswith("http://") or state.startswith("https://")):
+                # Basic validation: ensure we only redirect to safe URLs
+                # For MVP we allow anything, in prod we would restrict to whitelisted domains
+                redirect_url = state
+                
+            set_auth_cookies(response, access_token, raw_refresh)
+            return RedirectResponse(url=redirect_url)
+
+    except ValueError as e:
+        logger.error(f"OAuth callback resolution failed: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.get("/me/linked-accounts", response_model=UnifiedResponse)
+async def list_linked_accounts(
+    current_user: User = Depends(get_current_user),
+    oauth_service: OAuthService = Depends(get_oauth_service_dep)
+):
+    """List all OAuth accounts linked to the current user."""
+    accounts = await oauth_service.oauth_repo.list_by_user(current_user.id)
+    data = [
+        {
+            "id": str(acc.id),
+            "provider": acc.provider,
+            "provider_email": acc.provider_email,
+            "linked_at": acc.linked_at.isoformat() + "Z"
+        }
+        for acc in accounts
+    ]
+    return UnifiedResponse(success=True, data=data)
+
+@router.delete("/me/linked-accounts/{provider}", response_model=UnifiedResponse)
+async def unlink_account(
+    provider: str,
+    current_user: User = Depends(get_current_user),
+    oauth_service: OAuthService = Depends(get_oauth_service_dep),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """Unlink an OAuth account from the current user."""
+    # Security Guard: A user can only unlink an account if they have another login method
+    # (either a password hash set OR at least one other OAuth account)
+    has_password = current_user.password_hash is not None
+    linked_accounts = await oauth_service.oauth_repo.list_by_user(current_user.id)
+    
+    other_oauth_exists = len([a for a in linked_accounts if a.provider != provider]) > 0
+    
+    if not has_password and not other_oauth_exists:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot unlink the only login method. Set a password first."
+        )
+        
+    deleted = await oauth_service.oauth_repo.delete_by_provider(current_user.id, provider)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Linked account not found")
+        
+    await auth_service.audit_repo.create(
+        action="account_unlinked",
+        user_id=current_user.id,
+        metadata_json={"provider": provider}
+    )
+    
+    return UnifiedResponse(success=True, data={"message": f"Successfully unlinked {provider} account"})

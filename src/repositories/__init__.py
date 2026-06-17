@@ -4,6 +4,7 @@ from src.repositories.user import UserRepository
 from src.repositories.session import SessionRepository
 from src.repositories.token import TokenRepository
 from src.repositories.audit import AuditRepository
+from src.repositories.oauth import OAuthRepository
 
 __all__ = [
     "BaseRepository",
@@ -13,4 +14,5 @@ __all__ = [
     "SessionRepository",
     "TokenRepository",
     "AuditRepository",
+    "OAuthRepository",
 ]

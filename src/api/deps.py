@@ -14,7 +14,9 @@ from src.repositories.user import UserRepository
 from src.repositories.session import SessionRepository
 from src.repositories.token import TokenRepository
 from src.repositories.audit import AuditRepository
+from src.repositories.oauth import OAuthRepository
 from src.services.auth import AuthService
+from src.services.oauth import OAuthService
 from src.models.user import User
 
 # Define header schemas
@@ -136,13 +138,25 @@ async def get_audit_repository(
 ) -> AuditRepository:
     return AuditRepository(db, tenant_id)
 
+async def get_oauth_repository(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+) -> OAuthRepository:
+    return OAuthRepository(db, tenant_id)
+
 async def get_auth_service(
     user_repo: UserRepository = Depends(get_user_repository),
     session_repo: SessionRepository = Depends(get_session_repository),
     token_repo: TokenRepository = Depends(get_token_repository),
-    audit_repo: AuditRepository = Depends(get_audit_repository)
+    audit_repo: AuditRepository = Depends(get_audit_repository),
+    oauth_repo: OAuthRepository = Depends(get_oauth_repository)
 ) -> AuthService:
-    return AuthService(user_repo, session_repo, token_repo, audit_repo)
+    return AuthService(user_repo, session_repo, token_repo, audit_repo, oauth_repo)
+
+async def get_oauth_service_dep(
+    oauth_repo: OAuthRepository = Depends(get_oauth_repository)
+) -> OAuthService:
+    return OAuthService(oauth_repo)
 
 async def get_current_user(
     request: Request,

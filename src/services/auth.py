@@ -13,6 +13,7 @@ from src.repositories.user import UserRepository
 from src.repositories.session import SessionRepository
 from src.repositories.token import TokenRepository
 from src.repositories.audit import AuditRepository
+from src.repositories.oauth import OAuthRepository
 from src.models.user import User
 from src.models.session import Session
 
@@ -22,12 +23,14 @@ class AuthService:
         user_repo: UserRepository,
         session_repo: SessionRepository,
         token_repo: TokenRepository,
-        audit_repo: AuditRepository
+        audit_repo: AuditRepository,
+        oauth_repo: OAuthRepository
     ):
         self.user_repo = user_repo
         self.session_repo = session_repo
         self.token_repo = token_repo
         self.audit_repo = audit_repo
+        self.oauth_repo = oauth_repo
         self.tenant_id = user_repo.tenant_id
 
     async def register_user(self, email: str, password: str, role: str = "user") -> User:
