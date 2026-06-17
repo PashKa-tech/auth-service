@@ -17,6 +17,7 @@ from src.repositories.oauth import OAuthRepository
 from src.services.email import EmailService
 from src.models.user import User
 from src.models.session import Session
+from src.core.metrics import LOGIN_COUNTER, REFRESH_COUNTER, ACTIVE_SESSIONS
 
 class AuthService:
     def __init__(
@@ -78,6 +79,7 @@ class AuthService:
         # 1. Fetch user
         user = await self.user_repo.get_by_email(email)
         if not user or not user.password_hash or not verify_password(password, user.password_hash):
+            LOGIN_COUNTER.labels(status="failed", tenant_id=str(self.tenant_id)).inc()
             await self.audit_repo.create(
                 action="login_failed",
                 ip_address=ip_address,
@@ -89,6 +91,7 @@ class AuthService:
 
         # 2. Verify active status
         if not user.is_active:
+            LOGIN_COUNTER.labels(status="failed", tenant_id=str(self.tenant_id)).inc()
             await self.audit_repo.create(
                 action="login_failed",
                 user_id=user.id,
@@ -130,6 +133,8 @@ class AuthService:
         )
 
         # 6. Audit Log
+        LOGIN_COUNTER.labels(status="success", tenant_id=str(self.tenant_id)).inc()
+        ACTIVE_SESSIONS.labels(tenant_id=str(self.tenant_id)).inc()
         await self.audit_repo.create(
             action="login_success",
             user_id=user.id,
@@ -155,6 +160,7 @@ class AuthService:
         # 1. Look up refresh token
         token = await self.token_repo.get_by_hash(token_hash)
         if not token:
+            REFRESH_COUNTER.labels(status="failed").inc()
             await self.audit_repo.create(
                 action="refresh_token_not_found",
                 ip_address=ip_address,
@@ -171,6 +177,9 @@ class AuthService:
         # 2. Check for Reuse Attack (STRICT SECURITY)
         if token.is_revoked:
             # REUSE ATTACK DETECTED!
+            REFRESH_COUNTER.labels(status="reuse_detected").inc()
+            if not session.is_revoked:
+                ACTIVE_SESSIONS.labels(tenant_id=str(self.tenant_id)).dec()
             # Revoke all tokens in family
             await self.token_repo.revoke_family(token.family_id)
             # Revoke current session
@@ -197,10 +206,12 @@ class AuthService:
 
         # 3. Check expiration
         if token.expires_at < datetime.utcnow():
+            REFRESH_COUNTER.labels(status="failed").inc()
             raise ValueError("Refresh token expired")
-
+ 
         # 4. Check if session is revoked
         if session.is_revoked or session.expires_at < datetime.utcnow():
+            REFRESH_COUNTER.labels(status="failed").inc()
             raise ValueError("Session is expired or revoked")
 
         # 5. Revoke current token (Mark as used)
@@ -232,6 +243,7 @@ class AuthService:
         )
 
         # 9. Audit Log
+        REFRESH_COUNTER.labels(status="success").inc()
         await self.audit_repo.create(
             action="token_refreshed",
             user_id=user.id,
@@ -250,6 +262,8 @@ class AuthService:
             return False
 
         # Revoke session
+        if not session.is_revoked:
+            ACTIVE_SESSIONS.labels(tenant_id=str(self.tenant_id)).dec()
         await self.session_repo.revoke(session.id)
 
         # Revoke tokens associated with session
@@ -284,6 +298,8 @@ class AuthService:
         """Revoke all sessions and tokens for user."""
         # Revoke all sessions
         revoked_count = await self.session_repo.revoke_all_by_user(user_id)
+        if revoked_count > 0:
+            ACTIVE_SESSIONS.labels(tenant_id=str(self.tenant_id)).dec(revoked_count)
         
         # Revoke all refresh tokens for these sessions
         from sqlalchemy import update, select

@@ -1,13 +1,16 @@
 import uuid
+import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from src.config import settings
 from src.core.logging import setup_logging, logger
 from src.core.context import set_request_id, get_request_id, set_tenant_id
 from src.core.redis import init_redis, close_redis
+from src.core.metrics import REQUEST_LATENCY
 from src.api.v1.auth import router as auth_router
 from src.api.v1.health import router as health_router
 
@@ -33,6 +36,24 @@ app = FastAPI(
 # --- Middlewares ---
 
 @app.middleware("http")
+async def prometheus_metrics_middleware(request: Request, call_next):
+    """Middleware to measure HTTP request latency."""
+    # Exclude metrics endpoint to prevent noise
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
+    start_time = time.perf_counter()
+    response = await call_next(request)
+    duration = time.perf_counter() - start_time
+
+    # Get path template if available, else fallback to raw path
+    route = request.scope.get("route")
+    endpoint = route.path if route else request.url.path
+
+    REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
+    return response
+
+@app.middleware("http")
 async def request_tracing_middleware(request: Request, call_next):
     """Middleware to inject X-Request-ID and handle context variables lifecycle."""
     # Retrieve request ID or generate a new one
@@ -51,6 +72,7 @@ async def request_tracing_middleware(request: Request, call_next):
     # Attach X-Request-ID to response headers
     response.headers["X-Request-ID"] = request_id
     return response
+
 
 # --- Exception Handlers ---
 
@@ -112,6 +134,11 @@ async def generic_exception_handler(request: Request, exc: Exception):
     )
 
 # --- Routes Registration ---
+
+@app.get("/metrics")
+def metrics():
+    """Expose Prometheus metrics."""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # Global health checks
 app.include_router(health_router)
