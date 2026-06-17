@@ -337,8 +337,34 @@ async def oauth_login(
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """Initiate OAuth flow by redirecting client to provider authorize page."""
+    supported_providers = {"google", "github", "discord", "apple", "facebook", "twitter", "amazon"}
+    if provider not in supported_providers:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported OAuth provider: {provider}")
+
+    # Check toggles
+    enabled = getattr(settings, f"ENABLE_{provider.upper()}_OAUTH", False)
+    if not enabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"OAuth provider {provider} is disabled")
+        
+    client_id = getattr(settings, f"{provider.upper()}_CLIENT_ID", None)
+    if not client_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"OAuth provider {provider} is not configured")
+
     internal_state = str(uuid.uuid4())
     
+    # Generate PKCE verifier/challenge server-side if Twitter
+    extra_params = {}
+    twitter_verifier = None
+    if provider == "twitter":
+        import secrets
+        import hashlib
+        import base64
+        twitter_verifier = secrets.token_urlsafe(32)
+        hashed = hashlib.sha256(twitter_verifier.encode("ascii")).digest()
+        twitter_challenge = base64.urlsafe_b64encode(hashed).decode("utf-8").replace("=", "")
+        extra_params["code_challenge"] = twitter_challenge
+        extra_params["code_challenge_method"] = "S256"
+
     # Save flow context to Redis
     from src.core.redis import init_redis
     import json
@@ -351,13 +377,15 @@ async def oauth_login(
             "code_challenge": code_challenge,
             "code_challenge_method": code_challenge_method or "S256"
         }
+        if twitter_verifier:
+            flow_data["twitter_code_verifier"] = twitter_verifier
         await redis_client.set(f"oauth_state:{internal_state}", json.dumps(flow_data), ex=600)
     except Exception as e:
         logger.error(f"Failed to cache OAuth state: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
     try:
-        auth_url = oauth_service.get_authorization_url(provider, internal_state)
+        auth_url = oauth_service.get_authorization_url(provider, internal_state, extra_params=extra_params)
         return RedirectResponse(url=auth_url)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -374,6 +402,10 @@ async def oauth_callback(
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """Handle OAuth provider callback, resolve user and issue session/tokens."""
+    supported_providers = {"google", "github", "discord", "apple", "facebook", "twitter", "amazon"}
+    if provider not in supported_providers:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported OAuth provider: {provider}")
+
     if not state:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing state parameter")
         
@@ -397,6 +429,7 @@ async def oauth_callback(
     client_redirect_uri = state_data.get("client_redirect_uri")
     code_challenge = state_data.get("code_challenge")
     code_challenge_method = state_data.get("code_challenge_method")
+    twitter_verifier = state_data.get("twitter_code_verifier")
 
     # Determine redirect URL back to client
     redirect_url = client_redirect_uri or "http://localhost:3000"
@@ -421,8 +454,15 @@ async def oauth_callback(
                     except ValueError:
                         pass
 
-        # 1. Fetch profile information from Google/GitHub
-        user_info = await oauth_service.get_user_info_from_provider(provider, code)
+        # 1. Fetch profile information from provider
+        from src.services.oauth import get_provider_redirect_uri
+        redirect_uri = get_provider_redirect_uri(provider)
+        user_info = await oauth_service.get_user_info_from_provider(
+            provider=provider,
+            code=code,
+            redirect_uri=redirect_uri,
+            code_verifier=twitter_verifier
+        )
         
         # 2. Resolve account (linking strategy)
         user = await oauth_service.resolve_oauth_user(

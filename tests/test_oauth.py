@@ -15,7 +15,7 @@ class MockResponse:
 
 @pytest.fixture(autouse=True)
 def mock_oauth_http(monkeypatch):
-    """Mock Google and GitHub token exchange and userprofile fetch endpoints."""
+    """Mock token exchange and userprofile fetch endpoints for all OAuth providers."""
     original_post = httpx.AsyncClient.post
     original_get = httpx.AsyncClient.get
     
@@ -30,6 +30,30 @@ def mock_oauth_http(monkeypatch):
             return MockResponse({
                 "access_token": "mock-github-access-token"
             })
+        elif "discord.com/api/v10/oauth2/token" in url_str:
+            return MockResponse({
+                "access_token": "mock-discord-access-token"
+            })
+        elif "appleid.apple.com/auth/token" in url_str:
+            import jwt
+            fake_id_token = jwt.encode(
+                {"sub": "apple_sub_12345", "email": "apple_test_user@example.com"},
+                "key",
+                algorithm="HS256"
+            )
+            if isinstance(fake_id_token, bytes):
+                fake_id_token = fake_id_token.decode("utf-8")
+            return MockResponse({
+                "id_token": fake_id_token
+            })
+        elif "api.twitter.com/2/oauth2/token" in url_str:
+            return MockResponse({
+                "access_token": "mock-twitter-access-token"
+            })
+        elif "api.amazon.com/auth/o2/token" in url_str:
+            return MockResponse({
+                "access_token": "mock-amazon-access-token"
+            })
         # Pass-through to original method for local app testing
         return await original_post(self, url, *args, **kwargs)
         
@@ -37,6 +61,7 @@ def mock_oauth_http(monkeypatch):
         url_str = str(url)
         headers = kwargs.get("headers", {})
         auth_header = headers.get("Authorization", "")
+        params = kwargs.get("params", {})
         
         if "googleapis.com/oauth2/v3/userinfo" in url_str:
             assert "mock-google-access-token" in auth_header
@@ -58,6 +83,40 @@ def mock_oauth_http(monkeypatch):
                 "login": "github_tester",
                 "email": None # Trigger emails endpoint
             })
+        elif "discord.com/api/v10/oauth2/userinfo" in url_str:
+            assert "mock-discord-access-token" in auth_header
+            return MockResponse({
+                "id": "discord_sub_12345",
+                "email": "discord_test_user@example.com",
+                "verified": True,
+                "username": "Discord Test User"
+            })
+        elif "graph.facebook.com/v12.0/oauth/access_token" in url_str:
+            return MockResponse({
+                "access_token": "mock-facebook-access-token"
+            })
+        elif "graph.facebook.com/me" in url_str:
+            return MockResponse({
+                "id": "facebook_sub_12345",
+                "email": "facebook_test_user@example.com",
+                "name": "Facebook Test User"
+            })
+        elif "api.twitter.com/2/users/me" in url_str:
+            assert "mock-twitter-access-token" in auth_header
+            return MockResponse({
+                "data": {
+                    "id": "twitter_sub_12345",
+                    "email": "twitter_test_user@example.com",
+                    "name": "Twitter Test User"
+                }
+            })
+        elif "api.amazon.com/user/profile" in url_str:
+            assert "mock-amazon-access-token" in auth_header or "bearer mock-amazon-access-token" in auth_header.lower()
+            return MockResponse({
+                "user_id": "amazon_sub_12345",
+                "email": "amazon_test_user@example.com",
+                "name": "Amazon Test User"
+            })
         # Pass-through to original method for local app testing
         return await original_get(self, url, *args, **kwargs)
         
@@ -66,25 +125,34 @@ def mock_oauth_http(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_oauth_redirect_urls(client: AsyncClient, monkeypatch):
-    """Test OAuth authorize redirect URL generation."""
-    # Temporarily set credentials in settings
+    """Test OAuth authorize redirect URL generation for all supported providers."""
     from src.config import settings
     monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "google-id")
     monkeypatch.setattr(settings, "GITHUB_CLIENT_ID", "github-id")
+    monkeypatch.setattr(settings, "DISCORD_CLIENT_ID", "discord-id")
+    monkeypatch.setattr(settings, "APPLE_CLIENT_ID", "apple-id")
+    monkeypatch.setattr(settings, "FACEBOOK_CLIENT_ID", "facebook-id")
+    monkeypatch.setattr(settings, "TWITTER_CLIENT_ID", "twitter-id")
+    monkeypatch.setattr(settings, "AMAZON_CLIENT_ID", "amazon-id")
     
     headers = {"X-Api-Key": TEST_API_KEY}
     
-    # 1. Google
-    resp = await client.get("/api/v1/auth/oauth/google", headers=headers, follow_redirects=False)
-    assert resp.status_code == 307  # FastAPI Redirect status code
-    assert "accounts.google.com" in resp.headers["location"]
-    assert "google-id" in resp.headers["location"]
+    providers = [
+        ("google", "accounts.google.com", "google-id"),
+        ("github", "github.com/login/oauth", "github-id"),
+        ("discord", "discord.com/oauth2/authorize", "discord-id"),
+        ("apple", "appleid.apple.com/auth/authorize", "apple-id"),
+        ("facebook", "facebook.com/v12.0/dialog/oauth", "facebook-id"),
+        ("twitter", "twitter.com/i/oauth2/authorize", "twitter-id"),
+        ("amazon", "amazon.com/ap/oa", "amazon-id"),
+    ]
     
-    # 2. GitHub
-    resp = await client.get("/api/v1/auth/oauth/github", headers=headers, follow_redirects=False)
-    assert resp.status_code == 307
-    assert "github.com/login/oauth" in resp.headers["location"]
-    assert "github-id" in resp.headers["location"]
+    for provider, domain, client_id in providers:
+        resp = await client.get(f"/api/v1/auth/oauth/{provider}", headers=headers, follow_redirects=False)
+        assert resp.status_code == 307
+        location = resp.headers["location"]
+        assert domain in location
+        assert client_id in location
 
 @pytest.mark.asyncio
 async def clean_test_user(db_session: AsyncSession, email: str):
@@ -399,3 +467,112 @@ async def test_oauth_pkce_invalid_verifier(client: AsyncClient, db_session: Asyn
     )
     assert token_resp.status_code == 400
     assert "verifier" in token_resp.json()["error"]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_oauth_flow_new_providers(client: AsyncClient, db_session: AsyncSession, monkeypatch):
+    """Test full login flow for Discord, Apple, Facebook, Twitter, and Amazon."""
+    from src.config import settings
+    monkeypatch.setattr(settings, "DISCORD_CLIENT_ID", "discord-id")
+    monkeypatch.setattr(settings, "DISCORD_CLIENT_SECRET", "discord-secret")
+    monkeypatch.setattr(settings, "APPLE_CLIENT_ID", "apple-id")
+    monkeypatch.setattr(settings, "APPLE_CLIENT_SECRET", "apple-secret")
+    monkeypatch.setattr(settings, "FACEBOOK_CLIENT_ID", "facebook-id")
+    monkeypatch.setattr(settings, "FACEBOOK_CLIENT_SECRET", "facebook-secret")
+    monkeypatch.setattr(settings, "TWITTER_CLIENT_ID", "twitter-id")
+    monkeypatch.setattr(settings, "TWITTER_CLIENT_SECRET", "twitter-secret")
+    monkeypatch.setattr(settings, "AMAZON_CLIENT_ID", "amazon-id")
+    monkeypatch.setattr(settings, "AMAZON_CLIENT_SECRET", "amazon-secret")
+    
+    headers = {"X-Api-Key": TEST_API_KEY}
+    
+    new_providers = [
+        ("discord", "discord_test_user@example.com"),
+        ("apple", "apple_test_user@example.com"),
+        ("facebook", "facebook_test_user@example.com"),
+        ("twitter", "twitter_test_user@example.com"),
+        ("amazon", "amazon_test_user@example.com"),
+    ]
+    
+    for provider, email in new_providers:
+        client.cookies.clear()
+        await clean_test_user(db_session, email)
+        
+        # 1. Initiate login
+        init_resp = await client.get(
+            f"/api/v1/auth/oauth/{provider}?state=http://localhost:3000/dashboard",
+            headers=headers,
+            follow_redirects=False
+        )
+        assert init_resp.status_code == 307
+        from urllib.parse import urlparse, parse_qs
+        params = parse_qs(urlparse(init_resp.headers["location"]).query)
+        internal_state = params["state"][0]
+        
+        # 2. Trigger callback
+        cb_resp = await client.get(
+            f"/api/v1/auth/oauth/{provider}/callback?code=mock-code&state={internal_state}",
+            headers=headers,
+            follow_redirects=False
+        )
+        assert cb_resp.status_code == 307
+        assert cb_resp.headers["location"] == "http://localhost:3000/dashboard"
+        
+        # Verify browser cookies are set
+        cookies = cb_resp.cookies
+        assert "access_token" in cookies
+        
+        # 3. Call /me to verify email matches
+        me_resp = await client.get("/api/v1/auth/me", cookies=cookies)
+        assert me_resp.status_code == 200
+        assert me_resp.json()["data"]["email"] == email
+
+
+@pytest.mark.asyncio
+async def test_oauth_provider_disabled_toggle(client: AsyncClient, monkeypatch):
+    """Test that disabled providers are rejected with 400 Bad Request."""
+    from src.config import settings
+    monkeypatch.setattr(settings, "DISCORD_CLIENT_ID", "discord-id")
+    monkeypatch.setattr(settings, "ENABLE_DISCORD_OAUTH", False)
+    
+    headers = {"X-Api-Key": TEST_API_KEY}
+    
+    resp = await client.get(
+        "/api/v1/auth/oauth/discord?state=http://localhost:3000/dashboard",
+        headers=headers,
+        follow_redirects=False
+    )
+    assert resp.status_code == 400
+    assert "disabled" in resp.json()["error"]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_dynamic_redirect_uri_resolution_from_domain(client: AsyncClient, monkeypatch):
+    """Test dynamic redirect URI generation from DOMAIN setting."""
+    from src.config import settings
+    from src.services.oauth import get_provider_redirect_uri
+    
+    # 1. Custom domain
+    monkeypatch.setattr(settings, "DOMAIN", "auth.mycompany.com")
+    uri = get_provider_redirect_uri("google")
+    assert uri == "https://auth.mycompany.com/api/v1/auth/oauth/google/callback"
+    
+    # 2. Localhost
+    monkeypatch.setattr(settings, "DOMAIN", "localhost")
+    uri = get_provider_redirect_uri("google")
+    assert uri == "http://localhost:8000/api/v1/auth/oauth/google/callback"
+    
+    # 3. Localhost with port
+    monkeypatch.setattr(settings, "DOMAIN", "localhost:3000")
+    uri = get_provider_redirect_uri("google")
+    assert uri == "http://localhost:3000/api/v1/auth/oauth/google/callback"
+    
+    # 4. Explicit protocol domain
+    monkeypatch.setattr(settings, "DOMAIN", "http://my-local-server.test")
+    uri = get_provider_redirect_uri("google")
+    assert uri == "http://my-local-server.test/api/v1/auth/oauth/google/callback"
+    
+    # 5. Overridden in settings (should respect override)
+    monkeypatch.setattr(settings, "GOOGLE_REDIRECT_URI", "http://explicit.uri/callback")
+    uri = get_provider_redirect_uri("google")
+    assert uri == "http://explicit.uri/callback"

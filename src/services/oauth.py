@@ -7,19 +7,48 @@ from src.repositories.oauth import OAuthRepository
 from src.services.auth import AuthService
 from src.models.user import User
 
+def get_normalized_base_url() -> str:
+    domain = settings.DOMAIN
+    if not domain.startswith(("http://", "https://")):
+        if "localhost" in domain or ":" in domain:
+            if domain == "localhost":
+                domain = "localhost:8000"
+            domain = f"http://{domain}"
+        else:
+            domain = f"https://{domain}"
+    return domain.rstrip("/")
+
+def get_provider_redirect_uri(provider: str) -> str:
+    override = getattr(settings, f"{provider.upper()}_REDIRECT_URI", None)
+    if override:
+        return override
+    base_url = get_normalized_base_url()
+    return f"{base_url}{settings.API_V1_STR}/oauth/{provider}/callback"
+
 class OAuthService:
     def __init__(self, oauth_repo: OAuthRepository):
         self.oauth_repo = oauth_repo
         self.tenant_id = oauth_repo.tenant_id
 
-    def get_authorization_url(self, provider: str, state: str) -> str:
+    def get_authorization_url(self, provider: str, state: str, extra_params: dict | None = None) -> str:
         """Generate redirect URL to OAuth provider login page."""
+        provider_upper = provider.upper()
+        
+        # Check toggle
+        enabled = getattr(settings, f"ENABLE_{provider_upper}_OAUTH", False)
+        if not enabled:
+            raise ValueError(f"OAuth provider {provider} is disabled")
+            
+        client_id = getattr(settings, f"{provider_upper}_CLIENT_ID", None)
+        if not client_id:
+            raise ValueError(f"OAuth provider {provider} is not configured")
+            
+        redirect_uri = get_provider_redirect_uri(provider)
+        
         if provider == "google":
-            if not settings.GOOGLE_CLIENT_ID:
-                raise ValueError("Google OAuth is not configured")
             params = {
-                "client_id": settings.GOOGLE_CLIENT_ID,
-                "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
                 "response_type": "code",
                 "scope": "openid email profile",
                 "state": state,
@@ -28,21 +57,83 @@ class OAuthService:
             return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
             
         elif provider == "github":
-            if not settings.GITHUB_CLIENT_ID:
-                raise ValueError("GitHub OAuth is not configured")
             params = {
-                "client_id": settings.GITHUB_CLIENT_ID,
-                "redirect_uri": settings.GITHUB_REDIRECT_URI,
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
                 "scope": "user:email",
                 "state": state,
             }
             return f"https://github.com/login/oauth/authorize?{urlencode(params)}"
             
+        elif provider == "discord":
+            params = {
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "response_type": "code",
+                "scope": "identify email",
+                "state": state,
+            }
+            return f"https://discord.com/oauth2/authorize?{urlencode(params)}"
+            
+        elif provider == "apple":
+            params = {
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "response_type": "code",
+                "scope": "name email",
+                "response_mode": "query",
+                "state": state,
+            }
+            return f"https://appleid.apple.com/auth/authorize?{urlencode(params)}"
+            
+        elif provider == "facebook":
+            params = {
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "response_type": "code",
+                "scope": "public_profile email",
+                "state": state,
+            }
+            return f"https://www.facebook.com/v12.0/dialog/oauth?{urlencode(params)}"
+            
+        elif provider == "twitter":
+            params = {
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "response_type": "code",
+                "scope": "users.read tweet.read email.read",
+                "state": state,
+            }
+            if extra_params:
+                if "code_challenge" in extra_params:
+                    params["code_challenge"] = extra_params["code_challenge"]
+                if "code_challenge_method" in extra_params:
+                    params["code_challenge_method"] = extra_params["code_challenge_method"]
+            return f"https://twitter.com/i/oauth2/authorize?{urlencode(params)}"
+            
+        elif provider == "amazon":
+            params = {
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "scope": "profile",
+                "state": state,
+                "response_type": "code",
+            }
+            return f"https://www.amazon.com/ap/oa?{urlencode(params)}"
+            
         else:
             raise ValueError(f"Unknown OAuth provider: {provider}")
 
-    async def get_user_info_from_provider(self, provider: str, code: str) -> dict:
+    async def get_user_info_from_provider(self, provider: str, code: str, redirect_uri: str | None = None, code_verifier: str | None = None) -> dict:
         """Exchange auth code for access token and fetch user details from provider."""
+        provider_upper = provider.upper()
+        enabled = getattr(settings, f"ENABLE_{provider_upper}_OAUTH", False)
+        if not enabled:
+            raise ValueError(f"OAuth provider {provider} is disabled")
+            
+        if not redirect_uri:
+            redirect_uri = get_provider_redirect_uri(provider)
+            
         async with httpx.AsyncClient() as client:
             if provider == "google":
                 # 1. Exchange code for tokens
@@ -52,7 +143,7 @@ class OAuthService:
                     "client_secret": settings.GOOGLE_CLIENT_SECRET,
                     "code": code,
                     "grant_type": "authorization_code",
-                    "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+                    "redirect_uri": redirect_uri,
                 }
                 token_resp = await client.post(token_url, data=token_data)
                 if token_resp.status_code != 200:
@@ -91,7 +182,7 @@ class OAuthService:
                     "client_id": settings.GITHUB_CLIENT_ID,
                     "client_secret": settings.GITHUB_CLIENT_SECRET,
                     "code": code,
-                    "redirect_uri": settings.GITHUB_REDIRECT_URI,
+                    "redirect_uri": redirect_uri,
                 }
                 headers = {"Accept": "application/json"}
                 token_resp = await client.post(token_url, data=token_data, headers=headers)
@@ -148,6 +239,174 @@ class OAuthService:
                     "name": profile.get("login"),
                 }
                 
+            elif provider == "discord":
+                token_url = "https://discord.com/api/v10/oauth2/token"
+                token_data = {
+                    "client_id": settings.DISCORD_CLIENT_ID,
+                    "client_secret": settings.DISCORD_CLIENT_SECRET,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,
+                }
+                headers = {"Content-Type": "application/x-www-form-urlencoded"}
+                token_resp = await client.post(token_url, data=token_data, headers=headers)
+                if token_resp.status_code != 200:
+                    logger.error(f"Discord token exchange failed: {token_resp.text}")
+                    raise ValueError("Failed to retrieve tokens from Discord")
+                tokens = token_resp.json()
+                access_token = tokens.get("access_token")
+                
+                userinfo_url = "https://discord.com/api/v10/oauth2/userinfo"
+                userinfo_resp = await client.get(userinfo_url, headers={"Authorization": f"Bearer {access_token}"})
+                if userinfo_resp.status_code != 200:
+                    logger.error(f"Discord userinfo fetch failed: {userinfo_resp.text}")
+                    raise ValueError("Failed to retrieve profile from Discord")
+                userinfo = userinfo_resp.json()
+                email = userinfo.get("email")
+                if not email or not userinfo.get("verified", False):
+                    raise ValueError("Discord account email is not verified")
+                return {
+                    "provider_user_id": str(userinfo.get("id")),
+                    "email": email,
+                    "name": userinfo.get("username"),
+                }
+
+            elif provider == "apple":
+                token_url = "https://appleid.apple.com/auth/token"
+                token_data = {
+                    "client_id": settings.APPLE_CLIENT_ID,
+                    "client_secret": settings.APPLE_CLIENT_SECRET,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,
+                }
+                token_resp = await client.post(token_url, data=token_data)
+                if token_resp.status_code != 200:
+                    logger.error(f"Apple token exchange failed: {token_resp.text}")
+                    raise ValueError("Failed to retrieve tokens from Apple")
+                tokens = token_resp.json()
+                id_token = tokens.get("id_token")
+                if not id_token:
+                    raise ValueError("Apple did not return id_token")
+                
+                import jwt
+                decoded = jwt.decode(id_token, options={"verify_signature": False})
+                email = decoded.get("email")
+                if not email:
+                    raise ValueError("Apple id_token does not contain email")
+                return {
+                    "provider_user_id": str(decoded.get("sub")),
+                    "email": email,
+                    "name": email.split("@")[0],
+                }
+
+            elif provider == "facebook":
+                token_url = "https://graph.facebook.com/v12.0/oauth/access_token"
+                token_params = {
+                    "client_id": settings.FACEBOOK_CLIENT_ID,
+                    "client_secret": settings.FACEBOOK_CLIENT_SECRET,
+                    "code": code,
+                    "redirect_uri": redirect_uri,
+                }
+                token_resp = await client.get(token_url, params=token_params)
+                if token_resp.status_code != 200:
+                    logger.error(f"Facebook token exchange failed: {token_resp.text}")
+                    raise ValueError("Failed to retrieve tokens from Facebook")
+                tokens = token_resp.json()
+                access_token = tokens.get("access_token")
+                
+                userinfo_url = "https://graph.facebook.com/me"
+                userinfo_params = {
+                    "fields": "id,name,email",
+                    "access_token": access_token
+                }
+                userinfo_resp = await client.get(userinfo_url, params=userinfo_params)
+                if userinfo_resp.status_code != 200:
+                    logger.error(f"Facebook userinfo fetch failed: {userinfo_resp.text}")
+                    raise ValueError("Failed to retrieve profile from Facebook")
+                userinfo = userinfo_resp.json()
+                email = userinfo.get("email")
+                if not email:
+                    raise ValueError("Facebook account does not have a verified email address")
+                return {
+                    "provider_user_id": str(userinfo.get("id")),
+                    "email": email,
+                    "name": userinfo.get("name"),
+                }
+
+            elif provider == "twitter":
+                token_url = "https://api.twitter.com/2/oauth2/token"
+                token_data = {
+                    "client_id": settings.TWITTER_CLIENT_ID,
+                    "client_secret": settings.TWITTER_CLIENT_SECRET,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,
+                    "code_verifier": code_verifier,
+                }
+                import base64
+                auth_str = f"{settings.TWITTER_CLIENT_ID}:{settings.TWITTER_CLIENT_SECRET or ''}"
+                b64_auth = base64.b64encode(auth_str.encode("ascii")).decode("ascii")
+                headers = {"Authorization": f"Basic {b64_auth}"}
+                token_resp = await client.post(token_url, data=token_data, headers=headers)
+                if token_resp.status_code != 200:
+                    logger.error(f"Twitter token exchange failed: {token_resp.text}")
+                    raise ValueError("Failed to retrieve tokens from Twitter")
+                tokens = token_resp.json()
+                access_token = tokens.get("access_token")
+                
+                userinfo_url = "https://api.twitter.com/2/users/me"
+                userinfo_params = {"user.fields": "email"}
+                userinfo_resp = await client.get(
+                    userinfo_url,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params=userinfo_params
+                )
+                if userinfo_resp.status_code != 200:
+                    logger.error(f"Twitter userinfo fetch failed: {userinfo_resp.text}")
+                    raise ValueError("Failed to retrieve profile from Twitter")
+                userinfo = userinfo_resp.json()
+                data_block = userinfo.get("data", {})
+                email = data_block.get("email")
+                if not email:
+                    raise ValueError("Twitter account does not have an email address")
+                return {
+                    "provider_user_id": str(data_block.get("id")),
+                    "email": email,
+                    "name": data_block.get("name") or data_block.get("username"),
+                }
+
+            elif provider == "amazon":
+                token_url = "https://api.amazon.com/auth/o2/token"
+                token_data = {
+                    "client_id": settings.AMAZON_CLIENT_ID,
+                    "client_secret": settings.AMAZON_CLIENT_SECRET,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,
+                }
+                token_resp = await client.post(token_url, data=token_data)
+                if token_resp.status_code != 200:
+                    logger.error(f"Amazon token exchange failed: {token_resp.text}")
+                    raise ValueError("Failed to retrieve tokens from Amazon")
+                tokens = token_resp.json()
+                access_token = tokens.get("access_token")
+                
+                userinfo_url = "https://api.amazon.com/user/profile"
+                userinfo_resp = await client.get(userinfo_url, headers={"Authorization": f"bearer {access_token}"})
+                if userinfo_resp.status_code != 200:
+                    logger.error(f"Amazon userinfo fetch failed: {userinfo_resp.text}")
+                    raise ValueError("Failed to retrieve profile from Amazon")
+                userinfo = userinfo_resp.json()
+                email = userinfo.get("email")
+                if not email:
+                    raise ValueError("Amazon account does not have an email address")
+                return {
+                    "provider_user_id": str(userinfo.get("user_id")),
+                    "email": email,
+                    "name": userinfo.get("name"),
+                }
+
             else:
                 raise ValueError(f"Unsupported provider: {provider}")
 
