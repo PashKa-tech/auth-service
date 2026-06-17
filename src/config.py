@@ -34,15 +34,52 @@ class Settings(BaseSettings):
     # Super Admin / Provisioning
     SUPER_ADMIN_API_KEY: str = Field(default="super-admin-secret-key-change-me")
     
+    # Domain configuration (DOMEN alias in env)
+    DOMAIN: str = Field(default="http://localhost:8000", validation_alias="DOMEN")
+    
+    # OAuth Provider Toggles
+    ENABLE_GOOGLE_OAUTH: bool = Field(default=True)
+    ENABLE_GITHUB_OAUTH: bool = Field(default=True)
+    ENABLE_DISCORD_OAUTH: bool = Field(default=True)
+    ENABLE_APPLE_OAUTH: bool = Field(default=True)
+    ENABLE_FACEBOOK_OAUTH: bool = Field(default=True)
+    ENABLE_TWITTER_OAUTH: bool = Field(default=True)
+    ENABLE_AMAZON_OAUTH: bool = Field(default=True)
+    
     # Google OAuth
     GOOGLE_CLIENT_ID: str | None = Field(default=None)
     GOOGLE_CLIENT_SECRET: str | None = Field(default=None)
-    GOOGLE_REDIRECT_URI: str = Field(default="http://localhost:8000/api/v1/auth/oauth/google/callback")
+    GOOGLE_REDIRECT_URI: str | None = Field(default=None)
     
     # GitHub OAuth
     GITHUB_CLIENT_ID: str | None = Field(default=None)
     GITHUB_CLIENT_SECRET: str | None = Field(default=None)
-    GITHUB_REDIRECT_URI: str = Field(default="http://localhost:8000/api/v1/auth/oauth/github/callback")
+    GITHUB_REDIRECT_URI: str | None = Field(default=None)
+    
+    # Discord OAuth
+    DISCORD_CLIENT_ID: str | None = Field(default=None)
+    DISCORD_CLIENT_SECRET: str | None = Field(default=None)
+    DISCORD_REDIRECT_URI: str | None = Field(default=None)
+    
+    # Apple OAuth
+    APPLE_CLIENT_ID: str | None = Field(default=None)
+    APPLE_CLIENT_SECRET: str | None = Field(default=None)
+    APPLE_REDIRECT_URI: str | None = Field(default=None)
+    
+    # Facebook OAuth
+    FACEBOOK_CLIENT_ID: str | None = Field(default=None)
+    FACEBOOK_CLIENT_SECRET: str | None = Field(default=None)
+    FACEBOOK_REDIRECT_URI: str | None = Field(default=None)
+    
+    # Twitter (X) OAuth
+    TWITTER_CLIENT_ID: str | None = Field(default=None)
+    TWITTER_CLIENT_SECRET: str | None = Field(default=None)
+    TWITTER_REDIRECT_URI: str | None = Field(default=None)
+    
+    # Amazon OAuth
+    AMAZON_CLIENT_ID: str | None = Field(default=None)
+    AMAZON_CLIENT_SECRET: str | None = Field(default=None)
+    AMAZON_REDIRECT_URI: str | None = Field(default=None)
     
     # SMTP / Email Settings
     SMTP_HOST: str = Field(default="localhost")
