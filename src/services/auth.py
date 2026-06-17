@@ -183,6 +183,10 @@ class AuthService:
                     "attempted_token_id": str(token.id)
                 }
             )
+            # Commit immediately to persist the security revocation to DB,
+            # since raising ValueError will trigger rollback in DB session context manager
+            await self.session_repo.db.commit()
+            
             raise ValueError("Session revoked due to token reuse detection")
 
         # 3. Check expiration

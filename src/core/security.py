@@ -1,7 +1,7 @@
 import uuid
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
@@ -33,7 +33,7 @@ def create_access_token(
     expires_delta: timedelta | None = None
 ) -> str:
     """Generate a short-lived JWT Access Token."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if expires_delta:
         expire = now + expires_delta
     else:
