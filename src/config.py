@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = Field(default="noreply@authservice.com")
     USE_MOCK_EMAIL: bool = Field(default=True)
     
+    # 2FA Settings
+    TOTP_ENCRYPTION_KEY: str = Field(default="")  # Fernet key, auto-generated if empty
+    TOTP_ISSUER_NAME: str = "AuthService"
+    BACKUP_CODES_COUNT: int = 10
+    MFA_TOKEN_EXPIRE_MINUTES: int = 5
+    
     model_config = SettingsConfigDict(
         env_file=os.getenv("ENV_FILE", ".env.dev"),
         env_file_encoding="utf-8",

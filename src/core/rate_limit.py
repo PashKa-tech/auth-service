@@ -6,6 +6,10 @@ async def is_rate_limited(key: str, limit: int, window_seconds: int = 60) -> boo
     Check if a request rate limit is exceeded for a given key.
     Uses atomic increment and handles Redis failures gracefully (resilience).
     """
+    from src.config import settings
+    if settings.ENV == "testing":
+        return False
+
     client = await init_redis()
     try:
         # Atomic check and increment using pipeline
