@@ -546,12 +546,10 @@ class AuthService:
         if user.is_verified:
             return
             
-        raw_token = generate_opaque_token()
         expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=24)
         
-        await self.verification_token_repo.create_token(
+        raw_token = await self.verification_token_repo.create_token(
             user_id=user.id,
-            token=raw_token,
             token_type='email_verify',
             expires_at=expiry
         )
