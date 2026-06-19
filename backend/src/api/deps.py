@@ -362,3 +362,37 @@ class RoleChecker:
             )
         return current_user
 
+
+async def requires_fresh_auth(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """Dependency that enforces Step-up Auth (MFA freshness)."""
+    token = request.cookies.get("access_token")
+    auth_header = request.headers.get("Authorization")
+    
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+        
+    payload = verify_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        
+    # Check token issuance time (iat)
+    iat = payload.get("iat")
+    if not iat:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing iat claim")
+        
+    # If token is older than 10 minutes, require step-up auth
+    token_age_seconds = datetime.now(timezone.utc).timestamp() - iat
+    if token_age_seconds > 600:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Step-up authentication required. Please re-authenticate to perform this action."
+        )
+        
+    return current_user
+

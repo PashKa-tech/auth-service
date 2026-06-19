@@ -17,6 +17,7 @@ prometheus-client>=0.17.0
 pytest>=7.3.0
 pytest-asyncio>=0.21.0
 httpx>=0.24.0
+hypothesis>=6.80.0
 
 # 2FA
 pyotp>=2.9.0

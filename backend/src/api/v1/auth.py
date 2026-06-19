@@ -10,7 +10,8 @@ from src.api.deps import (
     get_oauth_service_dep,
     RoleChecker,
     get_two_factor_service,
-    get_webauthn_service
+    get_webauthn_service,
+    requires_fresh_auth
 )
 from src.services.auth import AuthService
 from src.services.oauth import OAuthService
@@ -18,7 +19,7 @@ from src.services.two_factor import TwoFactorService
 from src.models.user import User
 from src.config import settings
 from fastapi.responses import RedirectResponse
-from src.core.rate_limit import is_rate_limited
+from src.core.rate_limit import is_rate_limited, RateLimiter
 from src.core.logging import logger
 
 router = APIRouter()
@@ -116,21 +117,18 @@ def clear_auth_cookies(response: Response):
 
 # --- Routes ---
 
-@router.post("/register", response_model=UnifiedResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=UnifiedResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(RateLimiter("register_ip", 5))])
 async def register(
     request: Request,
     body: UserRegisterRequest,
     auth_service: AuthService = Depends(get_auth_service),
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
-    # Rate Limit checking: Global Tenant Limit & Register Rate Limit
+    # Rate Limit checking: Global Tenant Limit 
     global_limit_key = f"tenant_rpm:{tenant_id}"
-    ip_limit_key = f"register_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
     
     if await is_rate_limited(global_limit_key, 1000): # 1000 requests per tenant per minute
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Tenant rate limit exceeded")
-    if await is_rate_limited(ip_limit_key, 5): # Max 5 registration attempts per minute per IP
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded. Try again later.")
 
     try:
         user = await auth_service.register_user(body.email, body.password)
@@ -141,7 +139,7 @@ async def register(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
-@router.post("/login", response_model=UnifiedResponse)
+@router.post("/login", response_model=UnifiedResponse, dependencies=[Depends(RateLimiter("login_ip", 5))])
 async def login(
     request: Request,
     response: Response,
@@ -149,14 +147,11 @@ async def login(
     auth_service: AuthService = Depends(get_auth_service),
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
-    # Rate Limit checking: Global Tenant & Login IP
+    # Rate Limit checking: Global Tenant
     global_limit_key = f"tenant_rpm:{tenant_id}"
-    ip_limit_key = f"login_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
     
     if await is_rate_limited(global_limit_key, 1000):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Tenant rate limit exceeded")
-    if await is_rate_limited(ip_limit_key, 5): # Max 5 attempts per minute per IP (bruteforce check)
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts. Try again later.")
 
     try:
         ip = get_client_ip(request)
@@ -342,6 +337,7 @@ async def list_sessions(
 @router.get("/oauth/{provider}")
 async def oauth_login(
     provider: str,
+    response: Response,
     state: str | None = None,
     code_challenge: str | None = None,
     code_challenge_method: str | None = None,
@@ -399,7 +395,17 @@ async def oauth_login(
 
     try:
         auth_url = oauth_service.get_authorization_url(provider, internal_state, extra_params=extra_params)
-        return RedirectResponse(url=auth_url)
+        redirect_response = RedirectResponse(url=auth_url)
+        # Bind the state to a secure HttpOnly cookie for CSRF protection
+        redirect_response.set_cookie(
+            key="oauth_state_csrf",
+            value=internal_state,
+            httponly=True,
+            secure=False,  # Set True in Production
+            samesite="lax",
+            max_age=600 # 10 minutes
+        )
+        return redirect_response
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -421,6 +427,11 @@ async def oauth_callback(
 
     if not state:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing state parameter")
+        
+    # CSRF Check: state in URL must match state in cookie
+    cookie_state = request.cookies.get("oauth_state_csrf")
+    if not cookie_state or cookie_state != state:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OAuth CSRF validation failed")
         
     from src.core.redis import init_redis
     import json
@@ -603,6 +614,7 @@ async def oauth_callback(
 
         mobile = is_mobile_client(request)
         if mobile:
+            response.delete_cookie("oauth_state_csrf")
             return UnifiedResponse(
                 success=True,
                 data={
@@ -613,6 +625,7 @@ async def oauth_callback(
             )
         else:
             redirect_resp = RedirectResponse(url=redirect_url)
+            redirect_resp.delete_cookie("oauth_state_csrf")
             set_auth_cookies(redirect_resp, access_token, raw_refresh)
             return redirect_resp
 
@@ -641,7 +654,7 @@ async def list_linked_accounts(
 @router.delete("/me/linked-accounts/{provider}", response_model=UnifiedResponse)
 async def unlink_account(
     provider: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(requires_fresh_auth),
     oauth_service: OAuthService = Depends(get_oauth_service_dep),
     auth_service: AuthService = Depends(get_auth_service)
 ):

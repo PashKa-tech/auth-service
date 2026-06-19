@@ -99,7 +99,7 @@ class WebAuthnService:
                 expected_challenge=expected_challenge,
                 expected_origin=self.origin,
                 expected_rp_id=self.rp_id,
-                require_user_verification=False,
+                require_user_verification=True,
             )
         except Exception as e:
             raise ValueError(f"Registration failed: {str(e)}")
@@ -176,7 +176,7 @@ class WebAuthnService:
                 expected_rp_id=self.rp_id,
                 credential_public_key=db_credential.public_key,
                 credential_current_sign_count=db_credential.sign_count,
-                require_user_verification=False,
+                require_user_verification=True,
             )
         except Exception as e:
             # We must log failed login attempts via auth_service if needed, 
