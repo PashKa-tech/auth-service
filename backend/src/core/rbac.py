@@ -2,10 +2,16 @@ from fastapi import HTTPException, Depends, status
 from src.models.user import User
 from src.api.deps import get_current_user
 
-ROLE_PERMISSIONS = {
-    "admin": ["users:read", "users:write", "sessions:read", "sessions:write", "admin:access"],
+BASE_PERMISSIONS = {
+    "user": ["profile:read", "profile:write"],
     "manager": ["users:read", "sessions:read"],
-    "user": ["profile:read", "profile:write"]
+    "admin": ["users:write", "sessions:write", "admin:access"]
+}
+
+ROLE_PERMISSIONS = {
+    "user": BASE_PERMISSIONS["user"],
+    "manager": BASE_PERMISSIONS["user"] + BASE_PERMISSIONS["manager"],
+    "admin": BASE_PERMISSIONS["user"] + BASE_PERMISSIONS["manager"] + BASE_PERMISSIONS["admin"]
 }
 
 class PermissionChecker:

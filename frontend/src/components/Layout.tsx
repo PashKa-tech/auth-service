@@ -33,7 +33,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
 
   return (
     <div className="dashboard-container">
-      <aside className="sidebar glass">
+      <aside className="sidebar">
         <div>
           <div className="logo-container">
             <div className="logo-icon">AG</div>
@@ -46,7 +46,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
               className={`nav-item ${location.pathname === '/profile' ? 'active' : ''}`}
             >
               <User size={20} />
-              <span className="nav-label">Личный кабинет</span>
+              <span className="nav-label">Profile Settings</span>
             </Link>
 
             {isAdmin && (
@@ -55,7 +55,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                 className={`nav-item ${location.pathname === '/admin' ? 'active' : ''}`}
               >
                 <Shield size={20} />
-                <span className="nav-label">Админ-панель</span>
+                <span className="nav-label">Admin Dashboard</span>
               </Link>
             )}
           </nav>
@@ -64,7 +64,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
         <div className="flex flex-col gap-md">
           {user && (
             <div className="flex flex-col gap-sm" style={{ padding: '0 0.5rem' }}>
-              <span className="logo-text" style={{ fontSize: '0.9rem', fontWeight: 500 }}>
+              <span className="logo-text" style={{ fontSize: '0.9rem', fontWeight: 600, textTransform: 'none', letterSpacing: '0' }}>
                 {user.email.split('@')[0]}
               </span>
               <span className="badge badge-purple" style={{ alignSelf: 'flex-start' }}>
@@ -72,9 +72,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
               </span>
             </div>
           )}
-          <button onClick={handleSignOut} className="btn btn-secondary" style={{ width: '100%' }}>
+          <button onClick={handleSignOut} className="btn btn-secondary" style={{ width: '100%', justifyContent: 'flex-start' }}>
             <LogOut size={16} />
-            <span className="nav-label">Выйти</span>
+            <span className="nav-label">Sign Out</span>
           </button>
         </div>
       </aside>
@@ -83,10 +83,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
           >
             {children}
           </motion.div>

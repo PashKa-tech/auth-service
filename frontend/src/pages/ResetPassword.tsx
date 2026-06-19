@@ -14,14 +14,14 @@ export const ResetPassword = () => {
 
   useEffect(() => {
     if (!token) {
-      setError('Отсутствует токен сброса пароля.');
+      setError('Password reset token is missing.');
     }
   }, [token]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) {
-      setError('Отсутствует токен сброса пароля.');
+      setError('Password reset token is missing.');
       return;
     }
     setLoading(true);
@@ -33,7 +33,7 @@ export const ResetPassword = () => {
       setSuccess(true);
       setNewPassword('');
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.response?.data?.error || err.message || 'Произошла ошибка при сбросе пароля');
+      setError(err.response?.data?.detail || err.response?.data?.error || err.message || 'An error occurred while resetting the password');
     } finally {
       setLoading(false);
     }
@@ -41,10 +41,10 @@ export const ResetPassword = () => {
 
   return (
     <div className="auth-page">
-      <div className="auth-card glass-card glow-card">
+      <div className="auth-card glass-card">
         <div className="page-header" style={{ marginBottom: '1.5rem', textAlign: 'center' }}>
-          <h1 className="page-title">Сброс пароля</h1>
-          <p className="page-subtitle">Введите новый пароль</p>
+          <h1 className="page-title" style={{ fontSize: '1.75rem' }}>Reset Password</h1>
+          <p className="page-subtitle" style={{ fontSize: '0.9rem' }}>Enter your new password</p>
         </div>
 
         {success ? (
@@ -54,10 +54,10 @@ export const ResetPassword = () => {
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
                 <polyline points="22 4 12 14.01 9 11.01"></polyline>
               </svg>
-              <span>Пароль успешно изменён</span>
+              <span>Password successfully changed</span>
             </div>
             <button onClick={() => navigate('/login')} className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }}>
-              Перейти ко входу
+              Proceed to Sign In
             </button>
           </>
         ) : (
@@ -75,12 +75,12 @@ export const ResetPassword = () => {
 
             <form onSubmit={handleSubmit}>
               <div className="form-group">
-                <label className="form-label" htmlFor="password">Новый пароль</label>
+                <label className="form-label" htmlFor="password">New Password</label>
                 <input
                   type="password"
                   id="password"
                   className="form-input"
-                  placeholder="Введите пароль"
+                  placeholder="Enter new password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   required
@@ -89,15 +89,15 @@ export const ResetPassword = () => {
               </div>
 
               <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} disabled={!token || loading}>
-                {loading ? 'Сохранение...' : 'Сохранить пароль'}
+                {loading ? 'Saving...' : 'Save Password'}
               </button>
             </form>
 
-            <div className="divider">или</div>
+            <div className="divider">or</div>
             
             <div style={{ textAlign: 'center' }}>
-              <Link to="/login" style={{ color: 'var(--color-primary)', textDecoration: 'none', fontWeight: 500, fontSize: '0.9rem' }}>
-                Вернуться ко входу
+              <Link to="/login" style={{ color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 600, fontSize: '0.9rem', borderBottom: '1px solid var(--text-primary)', paddingBottom: '2px' }}>
+                Back to Sign In
               </Link>
             </div>
           </>

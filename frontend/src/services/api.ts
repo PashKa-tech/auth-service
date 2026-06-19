@@ -39,7 +39,7 @@ async function request<T = any>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
-  const url = `${API_BASE_URL}${endpoint}`;
+  const url = `${API_BASE_URL.replace(/\/$/, '')}/${endpoint.replace(/^\//, '')}`;
   
   // Set defaults
   const headers = new Headers(options.headers || {});
@@ -61,7 +61,7 @@ async function request<T = any>(
   // Auto token refresh on 401 (only if not already trying to refresh or login)
   if (response.status === 401 && !endpoint.includes('/auth/refresh') && !endpoint.includes('/auth/login')) {
     try {
-      const refreshResponse = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+      const refreshResponse = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/api/v1/auth/refresh`, {
         method: 'POST',
         headers: { 'X-Api-Key': getApiKey() },
         credentials: 'include'
@@ -108,7 +108,7 @@ export const api = {
     request<T>(endpoint, { 
       ...options, 
       method: 'PUT', 
-      body: body !== undefined ? JSON.stringify(body) : undefined 
+      body: body instanceof FormData ? body : (body !== undefined ? JSON.stringify(body) : undefined) 
     }),
     
   delete: <T = any>(endpoint: string, options?: RequestInit) => 

@@ -13,7 +13,7 @@ export const VerifyEmail: React.FC = () => {
     const token = searchParams.get('token');
     if (!token) {
       setStatus('error');
-      setMessage('Токен не найден в URL');
+      setMessage('Token not found in URL');
       return;
     }
 
@@ -21,10 +21,10 @@ export const VerifyEmail: React.FC = () => {
       try {
         await api.get(`/api/v1/auth/verify-email?token=${token}`);
         setStatus('success');
-        setMessage('Почта подтверждена');
+        setMessage('Email successfully verified');
       } catch (err: any) {
         setStatus('error');
-        setMessage(err.message || 'Ошибка подтверждения');
+        setMessage(err.message || 'Verification error');
       }
     };
 
@@ -33,17 +33,17 @@ export const VerifyEmail: React.FC = () => {
 
   return (
     <div className="auth-page">
-      <div className="glass-card auth-card glow-card" style={{ textAlign: 'center', padding: '3rem 2rem' }}>
+      <div className="glass-card auth-card" style={{ textAlign: 'center', padding: '3rem 2rem' }}>
         {status === 'loading' && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <Loader2 
               size={48} 
               style={{ 
-                color: 'var(--primary-color, #3b82f6)',
+                color: 'var(--text-primary)',
                 animation: 'spin 1s linear infinite'
               }} 
             />
-            <h2 style={{ marginTop: '1.5rem', fontSize: '1.5rem' }}>Проверка...</h2>
+            <h2 style={{ marginTop: '1.5rem', fontSize: '1.5rem', fontWeight: 600 }}>Verifying...</h2>
             <style>{`
               @keyframes spin {
                 from { transform: rotate(0deg); }
@@ -55,30 +55,30 @@ export const VerifyEmail: React.FC = () => {
         
         {status === 'success' && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <CheckCircle size={48} style={{ color: 'var(--success-color, #10b981)' }} />
-            <h2 style={{ marginTop: '1.5rem', fontSize: '1.5rem' }}>Успешно</h2>
-            <p style={{ marginTop: '0.5rem', color: 'var(--text-secondary, #9ca3af)' }}>{message}</p>
+            <CheckCircle size={48} style={{ color: 'var(--text-primary)' }} />
+            <h2 style={{ marginTop: '1.5rem', fontSize: '1.5rem', fontWeight: 600 }}>Success</h2>
+            <p style={{ marginTop: '0.5rem', color: 'var(--text-secondary)' }}>{message}</p>
             <button 
               className="btn btn-primary" 
               style={{ marginTop: '2rem', width: '100%' }}
               onClick={() => navigate('/login')}
             >
-              Войти
+              Sign In
             </button>
           </div>
         )}
 
         {status === 'error' && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <XCircle size={48} style={{ color: 'var(--error-color, #ef4444)' }} />
-            <h2 style={{ marginTop: '1.5rem', fontSize: '1.5rem' }}>Ошибка</h2>
-            <p style={{ marginTop: '0.5rem', color: 'var(--text-secondary, #9ca3af)' }}>{message}</p>
+            <XCircle size={48} style={{ color: 'var(--text-primary)' }} />
+            <h2 style={{ marginTop: '1.5rem', fontSize: '1.5rem', fontWeight: 600 }}>Error</h2>
+            <p style={{ marginTop: '0.5rem', color: 'var(--text-secondary)' }}>{message}</p>
             <button 
               className="btn btn-secondary" 
               style={{ marginTop: '2rem', width: '100%' }}
               onClick={() => navigate('/login')}
             >
-              На страницу входа
+              Back to Sign In
             </button>
           </div>
         )}

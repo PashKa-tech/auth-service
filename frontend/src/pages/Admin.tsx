@@ -49,7 +49,7 @@ export const Admin: React.FC = () => {
       const logsResp = await api.get(`/api/v1/auth/admin/audit-logs?limit=${logLimit}`);
       setLogs(logsResp.data);
     } catch (err: any) {
-      setError(err.message || 'Ошибка доступа или загрузки данных админ-панели');
+      setError(err.message || 'Failed to load admin dashboard data');
     } finally {
       setLoading(false);
     }
@@ -60,7 +60,7 @@ export const Admin: React.FC = () => {
   }, [userLimit, logLimit]);
 
   if (loading) {
-    return <div className="flex-center" style={{ minHeight: '50vh' }}>Загрузка панели управления...</div>;
+    return <div className="flex-center" style={{ minHeight: '50vh', color: 'var(--text-secondary)' }}>Loading dashboard...</div>;
   }
 
   // Filter users
@@ -80,8 +80,8 @@ export const Admin: React.FC = () => {
     <div>
       {/* Page Header */}
       <div className="page-header">
-        <h1 className="page-title">Административная панель</h1>
-        <p className="page-subtitle">Общий контроль безопасности, мониторинг активности и журналы аудита</p>
+        <h1 className="page-title">Admin Dashboard</h1>
+        <p className="page-subtitle">Security overview, activity monitoring, and audit logs</p>
       </div>
 
       {error && (
@@ -95,35 +95,35 @@ export const Admin: React.FC = () => {
       <div className="grid-3" style={{ marginBottom: '2.5rem' }}>
         
         {/* Total Users */}
-        <div className="glass-card flex align-center gap-lg" style={{ padding: '1.5rem' }}>
-          <div className="logo-icon" style={{ background: 'var(--grad-primary)' }}>
+        <div className="glass-card flex align-center gap-lg">
+          <div className="logo-icon">
             <Users size={20} />
           </div>
           <div>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Всего пользователей</span>
-            <h3 style={{ fontSize: '1.75rem', fontWeight: 700, marginTop: '0.25rem' }}>{stats.users_count}</h3>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Users</span>
+            <h3 style={{ fontSize: '1.75rem', fontWeight: 600, marginTop: '0.25rem' }}>{stats.users_count}</h3>
           </div>
         </div>
 
         {/* Active Sessions */}
-        <div className="glass-card flex align-center gap-lg" style={{ padding: '1.5rem' }}>
-          <div className="logo-icon" style={{ background: 'var(--grad-secondary)' }}>
+        <div className="glass-card flex align-center gap-lg">
+          <div className="logo-icon">
             <Layers size={20} />
           </div>
           <div>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Активных сеансов</span>
-            <h3 style={{ fontSize: '1.75rem', fontWeight: 700, marginTop: '0.25rem' }}>{stats.sessions_count}</h3>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Active Sessions</span>
+            <h3 style={{ fontSize: '1.75rem', fontWeight: 600, marginTop: '0.25rem' }}>{stats.sessions_count}</h3>
           </div>
         </div>
 
         {/* Anomalies detected */}
-        <div className="glass-card flex align-center gap-lg" style={{ padding: '1.5rem' }}>
-          <div className="logo-icon" style={{ background: stats.anomaly_count > 0 ? 'var(--grad-danger)' : 'var(--grad-success)' }}>
+        <div className="glass-card flex align-center gap-lg" style={{ borderColor: stats.anomaly_count > 0 ? '#ef4444' : 'var(--border-glass)' }}>
+          <div className="logo-icon" style={{ background: stats.anomaly_count > 0 ? '#ef4444' : '#ffffff', color: stats.anomaly_count > 0 ? '#ffffff' : '#000000' }}>
             <ShieldAlert size={20} />
           </div>
           <div>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Выявлено аномалий</span>
-            <h3 style={{ fontSize: '1.75rem', fontWeight: 700, marginTop: '0.25rem' }}>{stats.anomaly_count}</h3>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Anomalies</span>
+            <h3 style={{ fontSize: '1.75rem', fontWeight: 600, marginTop: '0.25rem' }}>{stats.anomaly_count}</h3>
           </div>
         </div>
 
@@ -134,23 +134,20 @@ export const Admin: React.FC = () => {
         <button 
           className={`btn ${activeTab === 'users' ? 'btn-primary' : 'btn-secondary'}`} 
           onClick={() => setActiveTab('users')}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
         >
-          <Users size={16} /> Пользователи
+          <Users size={16} /> Users
         </button>
         <button 
           className={`btn ${activeTab === 'logs' ? 'btn-primary' : 'btn-secondary'}`} 
           onClick={() => setActiveTab('logs')}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
         >
-          <FileText size={16} /> Журналы
+          <FileText size={16} /> Audit Logs
         </button>
         <button 
           className={`btn ${activeTab === 'analytics' ? 'btn-primary' : 'btn-secondary'}`} 
           onClick={() => setActiveTab('analytics')}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
         >
-          <Layers size={16} /> Аналитика
+          <Layers size={16} /> Analytics
         </button>
       </div>
 
@@ -158,14 +155,14 @@ export const Admin: React.FC = () => {
       {activeTab === 'users' && (
       <div className="glass-card" style={{ marginBottom: '2.5rem' }}>
         <div className="flex justify-between align-center" style={{ marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-          <h2 style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Users size={20} /> Список пользователей
+          <h2 style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 500 }}>
+            <Users size={20} /> User Management
           </h2>
           <div style={{ position: 'relative', width: '280px' }}>
             <Search size={16} style={{ position: 'absolute', left: '10px', top: '12px', color: 'var(--text-muted)' }} />
             <input
               type="text"
-              placeholder="Поиск пользователей..."
+              placeholder="Search users..."
               className="form-input"
               style={{ paddingLeft: '2.5rem', fontSize: '0.9rem', width: '100%' }}
               value={userSearch}
@@ -179,32 +176,32 @@ export const Admin: React.FC = () => {
             <thead>
               <tr>
                 <th>Email</th>
-                <th>Роль</th>
+                <th>Role</th>
                 <th>2FA</th>
-                <th>Email верифицирован</th>
-                <th>Статус аккаунта</th>
+                <th>Email Verified</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
               {filteredUsers.map((u) => (
                 <tr key={u.id}>
-                  <td style={{ fontWeight: 600 }}>{u.email}</td>
+                  <td style={{ fontWeight: 500 }}>{u.email}</td>
                   <td>
                     <span className="badge badge-purple">{u.role}</span>
                   </td>
                   <td>
                     <span className={u.two_factor_enabled ? 'badge badge-green' : 'badge badge-red'}>
-                      {u.two_factor_enabled ? 'Да' : 'Нет'}
+                      {u.two_factor_enabled ? 'Yes' : 'No'}
                     </span>
                   </td>
                   <td>
                     <span className={u.is_verified ? 'badge badge-green' : 'badge badge-red'}>
-                      {u.is_verified ? 'Да' : 'Нет'}
+                      {u.is_verified ? 'Yes' : 'No'}
                     </span>
                   </td>
                   <td>
                     <span className={u.is_active ? 'badge badge-green' : 'badge badge-red'}>
-                      {u.is_active ? 'Активен' : 'Отключен'}
+                      {u.is_active ? 'Active' : 'Disabled'}
                     </span>
                   </td>
                 </tr>
@@ -212,7 +209,7 @@ export const Admin: React.FC = () => {
               {filteredUsers.length === 0 && (
                 <tr>
                   <td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
-                    Пользователи не найдены
+                    No users found
                   </td>
                 </tr>
               )}
@@ -225,7 +222,7 @@ export const Admin: React.FC = () => {
                 className="btn btn-secondary" 
                 onClick={() => setUserLimit(prev => prev + 100)}
               >
-                Загрузить еще
+                Load More
               </button>
             </div>
           )}
@@ -237,14 +234,14 @@ export const Admin: React.FC = () => {
       {activeTab === 'logs' && (
       <div className="glass-card">
         <div className="flex justify-between align-center" style={{ marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-          <h2 style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <FileText size={20} /> Журнал аудита событий (Logs)
+          <h2 style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 500 }}>
+            <FileText size={20} /> Security Audit Logs
           </h2>
           <div style={{ position: 'relative', width: '280px' }}>
             <Search size={16} style={{ position: 'absolute', left: '10px', top: '12px', color: 'var(--text-muted)' }} />
             <input
               type="text"
-              placeholder="Поиск по событиям/IP..."
+              placeholder="Search events/IP..."
               className="form-input"
               style={{ paddingLeft: '2.5rem', fontSize: '0.9rem', width: '100%' }}
               value={logSearch}
@@ -257,17 +254,17 @@ export const Admin: React.FC = () => {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Событие (Action)</th>
-                <th>IP-адрес</th>
-                <th>Устройство / Браузер</th>
-                <th>Дата и время</th>
-                <th>Дополнительно</th>
+                <th>Action</th>
+                <th>IP Address</th>
+                <th>Device / Browser</th>
+                <th>Date & Time</th>
+                <th>Metadata</th>
               </tr>
             </thead>
             <tbody>
               {filteredLogs.map((l) => (
                 <tr key={l.id}>
-                  <td style={{ fontWeight: 600 }}>
+                  <td style={{ fontWeight: 500 }}>
                     <span className={l.action.includes('fail') || l.action.includes('anomaly') ? 'badge badge-red' : 'badge badge-blue'}>
                       {l.action}
                     </span>
@@ -296,7 +293,7 @@ export const Admin: React.FC = () => {
               {filteredLogs.length === 0 && (
                 <tr>
                   <td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
-                    Журнал пуст
+                    Log is empty
                   </td>
                 </tr>
               )}
@@ -309,7 +306,7 @@ export const Admin: React.FC = () => {
                 className="btn btn-secondary" 
                 onClick={() => setLogLimit(prev => prev + 100)}
               >
-                Загрузить еще
+                Load More
               </button>
             </div>
           )}
@@ -320,43 +317,43 @@ export const Admin: React.FC = () => {
       {/* Analytics Section */}
       {activeTab === 'analytics' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-          <div className="glass-card" style={{ padding: '1.5rem' }}>
-            <h2 style={{ fontSize: '1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div className="glass-card">
+            <h2 style={{ fontSize: '1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 500 }}>
               <Users size={20} /> Active Users
             </h2>
             <div style={{ width: '100%', height: 350 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={activeUsersData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                   <XAxis dataKey="name" stroke="var(--text-secondary)" />
                   <YAxis stroke="var(--text-secondary)" />
                   <Tooltip 
-                    contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px' }}
+                    contentStyle={{ backgroundColor: '#000', border: '1px solid #333', borderRadius: '0px' }}
                     itemStyle={{ color: 'var(--text-primary)' }}
                   />
                   <Legend />
-                  <Line type="monotone" dataKey="users" stroke="#8b5cf6" strokeWidth={3} activeDot={{ r: 8 }} />
+                  <Line type="monotone" dataKey="users" stroke="#ffffff" strokeWidth={2} activeDot={{ r: 6 }} dot={{ fill: '#000', stroke: '#fff', strokeWidth: 2 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          <div className="glass-card" style={{ padding: '1.5rem' }}>
-            <h2 style={{ fontSize: '1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div className="glass-card">
+            <h2 style={{ fontSize: '1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 500 }}>
               <Layers size={20} /> Logins per day
             </h2>
             <div style={{ width: '100%', height: 350 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={loginsPerDayData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                   <XAxis dataKey="name" stroke="var(--text-secondary)" />
                   <YAxis stroke="var(--text-secondary)" />
                   <Tooltip 
-                    contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px' }}
+                    contentStyle={{ backgroundColor: '#000', border: '1px solid #333', borderRadius: '0px' }}
                     itemStyle={{ color: 'var(--text-primary)' }}
                   />
                   <Legend />
-                  <Bar dataKey="logins" fill="#ec4899" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="logins" fill="#666666" radius={[0, 0, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

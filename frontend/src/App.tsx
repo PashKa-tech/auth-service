@@ -97,7 +97,7 @@ export const App: React.FC = () => {
               textShadow: '0 0 10px rgba(139, 92, 246, 0.3)'
             }}
           >
-            Восстановление сессии...
+            Restoring session...
           </motion.p>
         </div>
       </div>
