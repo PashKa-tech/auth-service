@@ -1,5 +1,5 @@
 from src.database import Base
-from src.models.tenant import Tenant
+from src.models.tenant import Tenant, TenantApiKey
 from src.models.user import User
 from src.models.session import Session
 from src.models.token import RefreshToken, VerificationToken
@@ -11,6 +11,7 @@ from src.models.webauthn import WebAuthnCredential
 __all__ = [
     "Base",
     "Tenant",
+    "TenantApiKey",
     "User",
     "Session",
     "RefreshToken",

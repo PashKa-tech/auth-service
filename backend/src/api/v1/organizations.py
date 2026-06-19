@@ -1,0 +1,80 @@
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, status
+from src.api.deps import get_current_user, get_tenant_service, RoleChecker, requires_fresh_auth
+from src.models.user import User
+from src.services.tenant import TenantService
+from pydantic import BaseModel
+
+router = APIRouter()
+
+class UnifiedResponse(BaseModel):
+    success: bool
+    data: dict | list | None = None
+    message: str | None = None
+
+class CreateApiKeyRequest(BaseModel):
+    name: str
+
+@router.get("/current", response_model=UnifiedResponse)
+async def get_current_organization(
+    current_user: User = Depends(get_current_user),
+    tenant_service: TenantService = Depends(get_tenant_service)
+):
+    tenant = await tenant_service.get_current_tenant()
+    return UnifiedResponse(success=True, data={
+        "id": str(tenant.id),
+        "name": tenant.name,
+        "rate_limit_rpm": tenant.rate_limit_rpm,
+        "created_at": tenant.created_at.isoformat() + "Z"
+    })
+
+@router.get("/api-keys", response_model=UnifiedResponse)
+async def list_api_keys(
+    current_user: User = Depends(RoleChecker(["admin"])),
+    tenant_service: TenantService = Depends(get_tenant_service)
+):
+    keys = await tenant_service.get_api_keys()
+    formatted_keys = []
+    for key in keys:
+        formatted_keys.append({
+            "id": str(key.id),
+            "name": key.name,
+            "key_prefix": key.key_prefix,
+            "created_at": key.created_at.isoformat() + "Z",
+            "last_used_at": key.last_used_at.isoformat() + "Z" if key.last_used_at else None
+        })
+    return UnifiedResponse(success=True, data=formatted_keys)
+
+@router.post("/api-keys", response_model=UnifiedResponse)
+async def create_api_key(
+    req: CreateApiKeyRequest,
+    current_user: User = Depends(requires_fresh_auth), # Require step-up to generate keys
+    tenant_service: TenantService = Depends(get_tenant_service)
+):
+    # Enforce role
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can create API keys")
+
+    api_key, raw_secret = await tenant_service.create_api_key(req.name, current_user.id)
+    
+    return UnifiedResponse(success=True, message="API Key generated. Save it now, it will not be shown again.", data={
+        "id": str(api_key.id),
+        "name": api_key.name,
+        "key_prefix": api_key.key_prefix,
+        "raw_secret": raw_secret # THIS IS THE ONLY TIME IT'S RETURNED!
+    })
+
+@router.delete("/api-keys/{key_id}", response_model=UnifiedResponse)
+async def revoke_api_key(
+    key_id: uuid.UUID,
+    current_user: User = Depends(requires_fresh_auth),
+    tenant_service: TenantService = Depends(get_tenant_service)
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can revoke API keys")
+
+    success = await tenant_service.delete_api_key(key_id, current_user.id)
+    if not success:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+        
+    return UnifiedResponse(success=True, message="API Key revoked successfully")

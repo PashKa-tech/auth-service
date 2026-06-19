@@ -266,6 +266,20 @@ async def get_oauth_service_dep(
 ) -> OAuthService:
     return OAuthService(oauth_repo)
 
+async def get_tenant_repository(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+) -> TenantRepository:
+    return TenantRepository(db, tenant_id)
+
+from src.services.tenant import TenantService
+
+async def get_tenant_service(
+    tenant_repo: TenantRepository = Depends(get_tenant_repository),
+    audit_repo: AuditRepository = Depends(get_audit_repository)
+) -> TenantService:
+    return TenantService(tenant_repo, audit_repo)
+
 async def get_webauthn_repository(
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(resolve_tenant)

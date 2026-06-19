@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, LogOut, User } from 'lucide-react';
+import { Shield, LogOut, User, Building2 } from 'lucide-react';
 import { api } from '../services/api';
 
 interface LayoutProps {
@@ -50,13 +50,22 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
             </Link>
 
             {isAdmin && (
-              <Link
-                to="/admin"
-                className={`nav-item ${location.pathname === '/admin' ? 'active' : ''}`}
-              >
-                <Shield size={20} />
-                <span className="nav-label">Admin Dashboard</span>
-              </Link>
+              <>
+                <Link
+                  to="/organization"
+                  className={`nav-item ${location.pathname === '/organization' ? 'active' : ''}`}
+                >
+                  <Building2 size={20} />
+                  <span className="nav-label">Developer Settings</span>
+                </Link>
+                <Link
+                  to="/admin"
+                  className={`nav-item ${location.pathname === '/admin' ? 'active' : ''}`}
+                >
+                  <Shield size={20} />
+                  <span className="nav-label">Admin Dashboard</span>
+                </Link>
+              </>
             )}
           </nav>
         </div>

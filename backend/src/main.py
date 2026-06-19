@@ -18,6 +18,7 @@ from src.core.redis import init_redis, close_redis
 from src.core.metrics import REQUEST_LATENCY
 from src.api.v1.auth import router as auth_router
 from src.api.v1.health import router as health_router
+from src.api.v1.organizations import router as organizations_router
 from src.middlewares.rbac import RBACMiddleware
 
 limiter = Limiter(key_func=get_remote_address)
@@ -170,5 +171,6 @@ def metrics():
 # Global health checks
 app.include_router(health_router)
 
-# Versioned API routes
+# Register API routers
 app.include_router(auth_router, prefix=settings.API_V1_STR)
+app.include_router(organizations_router, prefix=settings.API_V1_STR + "/organizations", tags=["organizations"])
