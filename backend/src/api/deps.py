@@ -16,10 +16,12 @@ from src.repositories.token import TokenRepository
 from src.repositories.audit import AuditRepository
 from src.repositories.oauth import OAuthRepository
 from src.repositories.two_factor import TwoFactorRepository
+from src.repositories.webauthn import WebAuthnRepository
 from src.services.auth import AuthService
 from src.services.oauth import OAuthService
 from src.services.email import EmailService
 from src.services.two_factor import TwoFactorService
+from src.services.webauthn import WebAuthnService
 from src.models.user import User
 
 # Define header schemas
@@ -257,6 +259,19 @@ async def get_oauth_service_dep(
     oauth_repo: OAuthRepository = Depends(get_oauth_repository)
 ) -> OAuthService:
     return OAuthService(oauth_repo)
+
+async def get_webauthn_repository(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+) -> WebAuthnRepository:
+    return WebAuthnRepository(db, tenant_id)
+
+async def get_webauthn_service(
+    user_repo: UserRepository = Depends(get_user_repository),
+    webauthn_repo: WebAuthnRepository = Depends(get_webauthn_repository),
+    auth_service: AuthService = Depends(get_auth_service)
+) -> WebAuthnService:
+    return WebAuthnService(user_repo, webauthn_repo, auth_service)
 
 async def get_current_user(
     request: Request,

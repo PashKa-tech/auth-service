@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { User, Shield, LogOut, Activity, Users, ShieldAlert } from 'lucide-react';
+import { Shield, LogOut, User } from 'lucide-react';
 import { api } from '../services/api';
 
 interface LayoutProps {

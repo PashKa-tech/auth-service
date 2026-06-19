@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, ShieldAlert, Layers, CheckCircle, Search, FileText, Globe } from 'lucide-react';
+import { Users, ShieldAlert, Layers, Search, FileText, Globe } from 'lucide-react';
 import { api } from '../services/api';
 
 export const Admin: React.FC = () => {
@@ -8,20 +8,24 @@ export const Admin: React.FC = () => {
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState<'users' | 'logs' | 'analytics'>('users');
 
   // Local filter states
   const [userSearch, setUserSearch] = useState('');
   const [logSearch, setLogSearch] = useState('');
+
+  const [userLimit, setUserLimit] = useState(100);
+  const [logLimit, setLogLimit] = useState(100);
 
   const fetchAdminData = async () => {
     try {
       const statsResp = await api.get('/api/v1/auth/admin/stats');
       setStats(statsResp.data);
 
-      const usersResp = await api.get('/api/v1/auth/admin/users');
+      const usersResp = await api.get(`/api/v1/auth/admin/users?limit=${userLimit}`);
       setUsers(usersResp.data);
 
-      const logsResp = await api.get('/api/v1/auth/admin/audit-logs');
+      const logsResp = await api.get(`/api/v1/auth/admin/audit-logs?limit=${logLimit}`);
       setLogs(logsResp.data);
     } catch (err: any) {
       setError(err.message || 'Ошибка доступа или загрузки данных админ-панели');
@@ -32,7 +36,7 @@ export const Admin: React.FC = () => {
 
   useEffect(() => {
     fetchAdminData();
-  }, []);
+  }, [userLimit, logLimit]);
 
   if (loading) {
     return <div className="flex-center" style={{ minHeight: '50vh' }}>Загрузка панели управления...</div>;
@@ -104,7 +108,33 @@ export const Admin: React.FC = () => {
 
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-md" style={{ marginBottom: '1.5rem' }}>
+        <button 
+          className={`btn ${activeTab === 'users' ? 'btn-primary' : 'btn-secondary'}`} 
+          onClick={() => setActiveTab('users')}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+        >
+          <Users size={16} /> Пользователи
+        </button>
+        <button 
+          className={`btn ${activeTab === 'logs' ? 'btn-primary' : 'btn-secondary'}`} 
+          onClick={() => setActiveTab('logs')}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+        >
+          <FileText size={16} /> Журналы
+        </button>
+        <button 
+          className={`btn ${activeTab === 'analytics' ? 'btn-primary' : 'btn-secondary'}`} 
+          onClick={() => setActiveTab('analytics')}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+        >
+          <Layers size={16} /> Аналитика
+        </button>
+      </div>
+
       {/* User Management Section */}
+      {activeTab === 'users' && (
       <div className="glass-card" style={{ marginBottom: '2.5rem' }}>
         <div className="flex justify-between align-center" style={{ marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
           <h2 style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -167,10 +197,23 @@ export const Admin: React.FC = () => {
               )}
             </tbody>
           </table>
+          
+          {users.length >= userLimit && (
+            <div style={{ padding: '1rem', textAlign: 'center' }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setUserLimit(prev => prev + 100)}
+              >
+                Загрузить еще
+              </button>
+            </div>
+          )}
         </div>
       </div>
+      )}
 
       {/* Audit Logs Section */}
+      {activeTab === 'logs' && (
       <div className="glass-card">
         <div className="flex justify-between align-center" style={{ marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
           <h2 style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -238,8 +281,27 @@ export const Admin: React.FC = () => {
               )}
             </tbody>
           </table>
+
+          {logs.length >= logLimit && (
+            <div style={{ padding: '1rem', textAlign: 'center' }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setLogLimit(prev => prev + 100)}
+              >
+                Загрузить еще
+              </button>
+            </div>
+          )}
         </div>
       </div>
+      )}
+
+      {/* Analytics Section */}
+      {activeTab === 'analytics' && (
+        <div className="glass-card" style={{ minHeight: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <h2 style={{ color: 'var(--text-muted)' }}>Analytics charts coming in Phase 14</h2>
+        </div>
+      )}
     </div>
   );
 };

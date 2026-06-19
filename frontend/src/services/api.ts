@@ -1,15 +1,17 @@
 // API client for Auth Service
 
-const API_BASE_URL = 'http://localhost:8000';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 export interface ApiResponse<T = any> {
-  status: string;
+  success: boolean;
   data: T;
   message?: string;
+  error?: any;
+  meta?: any;
 }
 
 export function getApiKey(): string {
-  return localStorage.getItem('auth_api_key') || 'default_dev_key';
+  return localStorage.getItem('auth_api_key') || import.meta.env.VITE_API_KEY || '';
 }
 
 export function setApiKey(key: string): void {
@@ -54,7 +56,24 @@ async function request<T = any>(
     credentials: 'include', // Crucial to send/receive httpOnly cookies (access_token, refresh_token)
   };
 
-  const response = await fetch(url, config);
+  let response = await fetch(url, config);
+  
+  // Auto token refresh on 401 (only if not already trying to refresh or login)
+  if (response.status === 401 && !endpoint.includes('/auth/refresh') && !endpoint.includes('/auth/login')) {
+    try {
+      const refreshResponse = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { 'X-Api-Key': getApiKey() },
+        credentials: 'include'
+      });
+      if (refreshResponse.ok) {
+        // Retry original request
+        response = await fetch(url, config);
+      }
+    } catch (e) {
+      // Ignore refresh errors and let the original 401 fall through
+    }
+  }
   
   let json: any = {};
   const text = await response.text();
@@ -67,7 +86,7 @@ async function request<T = any>(
   }
 
   if (!response.ok) {
-    const errorMsg = json.detail || json.message || `Request failed with status ${response.status}`;
+    const errorMsg = json.detail || json.error?.message || json.message || `Request failed with status ${response.status}`;
     throw new Error(errorMsg);
   }
 
@@ -89,7 +108,7 @@ export const api = {
     request<T>(endpoint, { 
       ...options, 
       method: 'PUT', 
-      body: JSON.stringify(body) 
+      body: body !== undefined ? JSON.stringify(body) : undefined 
     }),
     
   delete: <T = any>(endpoint: string, options?: RequestInit) => 

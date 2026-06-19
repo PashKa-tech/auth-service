@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { LogIn, UserPlus, Settings, CheckCircle, AlertCircle, ShieldAlert, Key } from 'lucide-react';
-import { api, getApiKey, setApiKey } from '../services/api';
+import { LogIn, UserPlus, Settings, CheckCircle, AlertCircle, Key } from 'lucide-react';
+import { api, getApiKey, setApiKey, API_BASE_URL } from '../services/api';
 
 interface LoginProps {
   onLoginSuccess: (user: any) => void;
@@ -22,6 +22,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
   // Status/Error state
   const [loading, setLoading] = useState(false);
+  const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
@@ -39,6 +40,9 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       setRequires2fa(true);
       setMfaToken(oauthMfaToken);
       setInfo('Для завершения входа через OAuth требуется двухфакторная аутентификация.');
+      
+      // Prevent token leakage by removing from URL
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [searchParams]);
 
@@ -83,7 +87,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setLoading(true);
 
     try {
-      const resp = await api.post('/api/v1/auth/2fa/verify', {
+      await api.post('/api/v1/auth/2fa/verify', {
         mfa_token: mfaToken,
         totp_code: totpCode,
       });
@@ -102,8 +106,47 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const handleOAuthLogin = (provider: string) => {
     // Dynamic client state (where to return after successful login)
     const clientState = window.location.origin + '/profile';
-    const loginUrl = `http://localhost:8000/api/v1/auth/oauth/${provider}?state=${encodeURIComponent(clientState)}`;
+    const loginUrl = `${API_BASE_URL}/api/v1/auth/oauth/${provider}?state=${encodeURIComponent(clientState)}`;
     window.location.href = loginUrl;
+  };
+
+  const handlePasskeyLogin = async () => {
+    if (!email) {
+      setError('Введите email для входа по Passkey');
+      return;
+    }
+    setError('');
+    setInfo('');
+    setIsPasskeyLoading(true);
+
+    try {
+      // 1. Get options
+      const beginResp = await api.post('/api/v1/auth/webauthn/login/begin', { email });
+      
+      // 2. Start auth
+      const { startAuthentication } = await import('@simplewebauthn/browser');
+      let asseResp;
+      try {
+        asseResp = await startAuthentication({ optionsJSON: beginResp.data });
+      } catch (e: any) {
+        throw new Error('Аутентификация по биометрии отменена или не удалась');
+      }
+
+      // 3. Verify
+      await api.post('/api/v1/auth/webauthn/login/complete', {
+        email,
+        response: asseResp
+      });
+
+      // 4. Success
+      const meResp = await api.get('/api/v1/auth/me');
+      onLoginSuccess(meResp.data);
+      navigate('/profile');
+    } catch (err: any) {
+      setError(err.message || 'Ошибка входа по Passkey');
+    } finally {
+      setIsPasskeyLoading(false);
+    }
   };
 
   const saveSettings = (e: React.FormEvent) => {
@@ -163,7 +206,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         {/* Tenant Settings Panel */}
         {showSettings && (
           <form onSubmit={saveSettings} style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--border-radius-md)', border: '1px solid var(--border-glass)' }}>
-            <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', display: 'flex', alignCenter: 'center', gap: '0.5rem' }}>
+            <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Key size={16} /> Настройки разработчика (Multi-tenant)
             </h3>
             <div className="form-group">
@@ -248,6 +291,18 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                 {isRegister ? <UserPlus size={18} /> : <LogIn size={18} />}
                 {loading ? 'Загрузка...' : isRegister ? 'Зарегистрироваться' : 'Войти'}
               </button>
+
+              {!isRegister && (
+                <button 
+                  type="button" 
+                  onClick={handlePasskeyLogin} 
+                  className="btn btn-secondary" 
+                  style={{ width: '100%', marginTop: '0.5rem' }} 
+                  disabled={loading || isPasskeyLoading}
+                >
+                  <Key size={18} /> {isPasskeyLoading ? 'Ожидание устройства...' : 'Войти по Passkey (Биометрия)'}
+                </button>
+              )}
             </form>
 
             {/* Toggle Sign In / Sign Up */}
@@ -294,15 +349,10 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   <button onClick={() => handleOAuthLogin('twitter')} className="btn-oauth">
                     Twitter (X)
                   </button>
+                  <button onClick={() => handleOAuthLogin('amazon')} className="btn-oauth">
+                    Amazon
+                  </button>
                 </div>
-                
-                <button
-                  onClick={() => handleOAuthLogin('amazon')}
-                  className="btn-oauth"
-                  style={{ width: '100%', justifyContent: 'center' }}
-                >
-                  Войти через Amazon
-                </button>
               </>
             )}
           </>

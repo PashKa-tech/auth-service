@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, ShieldAlert, Key, Smartphone, Trash2, Link2, Unlink, CheckCircle, AlertCircle, RefreshCw, Layers } from 'lucide-react';
-import { api } from '../services/api';
+import { Shield, Smartphone, Trash2, Link2, Unlink, CheckCircle, AlertCircle, RefreshCw, Layers, Key } from 'lucide-react';
+import { api, API_BASE_URL } from '../services/api';
+import { QRCodeSVG } from 'qrcode.react';
 
 export const Profile: React.FC = () => {
   const [user, setUser] = useState<any>(null);
@@ -11,12 +12,14 @@ export const Profile: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   // 2FA state
   const [mfaSetupData, setMfaSetupData] = useState<any>(null);
   const [totpVerificationCode, setTotpVerificationCode] = useState('');
   const [disablingMfa, setDisablingMfa] = useState(false);
   const [disableCredential, setDisableCredential] = useState('');
+  const [disableMethod, setDisableMethod] = useState<'password' | 'totp'>('totp');
 
   const fetchData = async () => {
     try {
@@ -42,12 +45,15 @@ export const Profile: React.FC = () => {
   const handleLogoutAllOther = async () => {
     setError('');
     setSuccess('');
+    setActionLoading('logoutAll');
     try {
       await api.post('/api/v1/auth/logout-all');
-      setSuccess('Все остальные сеансы были успешно завершены.');
-      fetchData();
+      // Backend revoked ALL sessions and cleared our cookie.
+      // We must reload the page so the app re-initializes and redirects to login.
+      window.location.href = '/login';
     } catch (err: any) {
       setError(err.message || 'Ошибка выхода из других сессий');
+      setActionLoading(null);
     }
   };
 
@@ -55,30 +61,36 @@ export const Profile: React.FC = () => {
     setError('');
     setSuccess('');
     const clientState = window.location.origin + '/profile';
-    const linkUrl = `http://localhost:8000/api/v1/auth/oauth/${provider}?state=${encodeURIComponent(clientState)}`;
+    const linkUrl = `${API_BASE_URL}/api/v1/auth/oauth/${provider}?state=${encodeURIComponent(clientState)}`;
     window.location.href = linkUrl;
   };
 
   const handleUnlinkAccount = async (provider: string) => {
     setError('');
     setSuccess('');
+    setActionLoading(`unlink-${provider}`);
     try {
       await api.delete(`/api/v1/auth/me/linked-accounts/${provider}`);
       setSuccess(`Аккаунт ${provider} успешно отвязан.`);
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       setError(err.message || 'Ошибка отвязки аккаунта');
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const handleStart2faSetup = async () => {
     setError('');
     setSuccess('');
+    setActionLoading('start2fa');
     try {
       const resp = await api.post('/api/v1/auth/2fa/setup');
       setMfaSetupData(resp.data);
     } catch (err: any) {
       setError(err.message || 'Ошибка инициализации 2FA');
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -104,21 +116,20 @@ export const Profile: React.FC = () => {
     setError('');
     setSuccess('');
     try {
-      // We pass it either as totp_code or password depending on what they inputted
       const body: any = {};
-      if (disableCredential.length === 6 && /^\d+$/.test(disableCredential)) {
+      if (disableMethod === 'totp') {
         body.totp_code = disableCredential;
       } else {
         body.password = disableCredential;
       }
 
       await api.post('/api/v1/auth/2fa/disable', body);
-      setSuccess('Двухфакторная аутентификация (2FA) отключена.');
-      setDisablingMfa(false);
-      setDisableCredential('');
-      fetchData();
+      setSuccess('2FA успешно отключена!');
+      setMfaSetupData(null);
+      setTotpVerificationCode('');
+      await fetchData();
     } catch (err: any) {
-      setError(err.message || 'Неверный пароль или код 2FA');
+      setError(err.message || 'Ошибка отключения 2FA');
     }
   };
 
@@ -135,6 +146,39 @@ export const Profile: React.FC = () => {
       setSuccess('Новые резервные коды сгенерированы. Пожалуйста, сохраните их!');
     } catch (err: any) {
       setError(err.message || 'Ошибка регенерации резервных кодов');
+    }
+  };
+
+  const handleRegisterPasskey = async () => {
+    setError('');
+    setSuccess('');
+    setActionLoading('registerPasskey');
+    try {
+      // 1. Get options
+      const beginResp = await api.post('/api/v1/auth/webauthn/register/begin');
+      
+      // 2. Start registration
+      const { startRegistration } = await import('@simplewebauthn/browser');
+      let asseResp;
+      try {
+        asseResp = await startRegistration({ optionsJSON: beginResp.data });
+      } catch (e: any) {
+        throw new Error('Регистрация биометрии отменена или не удалась');
+      }
+
+      // 3. Complete
+      const deviceName = window.prompt("Введите имя устройства для Passkey:", "Мое устройство");
+      await api.post('/api/v1/auth/webauthn/register/complete', {
+        response: asseResp,
+        name: deviceName || 'New Passkey'
+      });
+
+      setSuccess('Passkey успешно добавлен!');
+      await fetchData();
+    } catch (err: any) {
+      setError(err.message || 'Ошибка регистрации Passkey');
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -217,8 +261,8 @@ export const Profile: React.FC = () => {
 
             {/* If 2FA is not enabled and setup is not in progress */}
             {!isMfaEnabled && !mfaSetupData && (
-              <button onClick={handleStart2faSetup} className="btn btn-primary" style={{ width: '100%' }}>
-                Настроить 2FA (TOTP)
+              <button onClick={handleStart2faSetup} className="btn btn-primary" style={{ width: '100%' }} disabled={actionLoading === 'start2fa'}>
+                {actionLoading === 'start2fa' ? 'Загрузка...' : 'Настроить 2FA (TOTP)'}
               </button>
             )}
 
@@ -232,10 +276,10 @@ export const Profile: React.FC = () => {
                 {mfaSetupData.qr_code_uri && (
                   <div style={{ textAlign: 'center' }}>
                     <div className="qr-container">
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(mfaSetupData.qr_code_uri)}`}
-                        alt="TOTP QR Code"
-                        style={{ display: 'block' }}
+                      <QRCodeSVG 
+                        value={mfaSetupData.qr_code_uri} 
+                        size={200}
+                        style={{ display: 'block', margin: '0 auto', background: 'white', padding: '10px', borderRadius: '8px' }}
                       />
                     </div>
                     <p style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0.5rem 0 1rem 0' }}>
@@ -307,11 +351,23 @@ export const Profile: React.FC = () => {
                 ) : (
                   <form onSubmit={handleDisable2fa} style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '1rem', marginTop: '1rem' }}>
                     <div className="form-group">
-                      <label className="form-label">Код TOTP или пароль аккаунта</label>
+                      <label className="form-label">Способ подтверждения</label>
+                      <select 
+                        className="form-input" 
+                        value={disableMethod} 
+                        onChange={(e) => setDisableMethod(e.target.value as 'password' | 'totp')}
+                        style={{ marginBottom: '1rem' }}
+                      >
+                        <option value="totp">Код TOTP</option>
+                        <option value="password">Пароль</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">{disableMethod === 'totp' ? 'Код TOTP' : 'Пароль аккаунта'}</label>
                       <input
-                        type="password"
+                        type={disableMethod === 'totp' ? 'text' : 'password'}
                         className="form-input"
-                        placeholder="Код 2FA или пароль"
+                        placeholder={disableMethod === 'totp' ? 'Код 2FA' : 'Пароль'}
                         value={disableCredential}
                         onChange={(e) => setDisableCredential(e.target.value)}
                         required
@@ -354,6 +410,26 @@ export const Profile: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Passkeys Card */}
+          <div className="glass-card">
+            <h2 style={{ fontSize: '1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Key size={20} /> Passkeys (Биометрия)
+            </h2>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                Входите в аккаунт с помощью отпечатка пальца, Face ID или Windows Hello без пароля.
+              </p>
+            </div>
+            <button 
+              onClick={handleRegisterPasskey} 
+              className="btn btn-primary" 
+              style={{ width: '100%' }} 
+              disabled={actionLoading === 'registerPasskey'}
+            >
+              {actionLoading === 'registerPasskey' ? 'Загрузка...' : 'Добавить Passkey'}
+            </button>
+          </div>
         </div>
 
         {/* Right Column: Sessions and Linked Accounts */}
@@ -393,8 +469,9 @@ export const Profile: React.FC = () => {
                         onClick={() => handleUnlinkAccount(provider)}
                         className="btn btn-secondary"
                         style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                        disabled={actionLoading === `unlink-${provider}`}
                       >
-                        <Unlink size={14} /> Отвязать
+                        <Unlink size={14} /> {actionLoading === `unlink-${provider}` ? 'Отвязка...' : 'Отвязать'}
                       </button>
                     ) : (
                       <button
@@ -422,8 +499,9 @@ export const Profile: React.FC = () => {
                   onClick={handleLogoutAllOther}
                   className="btn btn-danger"
                   style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                  disabled={actionLoading === 'logoutAll'}
                 >
-                  <Trash2 size={14} /> Выйти на других устройствах
+                  <Trash2 size={14} /> {actionLoading === 'logoutAll' ? 'Выход...' : 'Выйти на других устройствах'}
                 </button>
               )}
             </div>

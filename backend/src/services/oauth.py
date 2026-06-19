@@ -6,6 +6,12 @@ from src.core.logging import logger
 from src.repositories.oauth import OAuthRepository
 from src.services.auth import AuthService
 from src.models.user import User
+from dataclasses import dataclass
+
+@dataclass
+class OAuthUserInfo:
+    email: str
+    provider_id: str
 
 def get_normalized_base_url() -> str:
     domain = settings.DOMAIN
@@ -124,7 +130,7 @@ class OAuthService:
         else:
             raise ValueError(f"Unknown OAuth provider: {provider}")
 
-    async def get_user_info_from_provider(self, provider: str, code: str, redirect_uri: str | None = None, code_verifier: str | None = None) -> dict:
+    async def get_user_info_from_provider(self, provider: str, code: str, redirect_uri: str | None = None, code_verifier: str | None = None) -> OAuthUserInfo:
         """Exchange auth code for access token and fetch user details from provider."""
         provider_upper = provider.upper()
         enabled = getattr(settings, f"ENABLE_{provider_upper}_OAUTH", False)
@@ -169,41 +175,34 @@ class OAuthService:
                 if not email or not email_verified:
                     raise ValueError("Google account email is not verified")
                     
-                return {
-                    "provider_user_id": str(userinfo.get("sub")),
-                    "email": email,
-                    "name": userinfo.get("name"),
-                }
+                return OAuthUserInfo(
+                    provider_id=str(userinfo.get("sub")),
+                    email=email,
+                )
                 
             elif provider == "github":
-                # 1. Exchange code for tokens
+                # 1. Exchange code for token
                 token_url = "https://github.com/login/oauth/access_token"
+                headers = {"Accept": "application/json"}
                 token_data = {
                     "client_id": settings.GITHUB_CLIENT_ID,
                     "client_secret": settings.GITHUB_CLIENT_SECRET,
                     "code": code,
                     "redirect_uri": redirect_uri,
                 }
-                headers = {"Accept": "application/json"}
                 token_resp = await client.post(token_url, data=token_data, headers=headers)
                 if token_resp.status_code != 200:
                     logger.error(f"GitHub token exchange failed: {token_resp.text}")
-                    raise ValueError("Failed to retrieve tokens from GitHub")
+                    raise ValueError("Failed to exchange code for token")
                     
-                tokens = token_resp.json()
-                access_token = tokens.get("access_token")
-                if not access_token:
-                    logger.error(f"GitHub did not return access_token: {tokens}")
-                    raise ValueError("Failed to retrieve tokens from GitHub")
-
-                # 2. Fetch userinfo
+                token_json = token_resp.json()
+                if "error" in token_json:
+                    raise ValueError(f"GitHub OAuth error: {token_json.get('error_description', token_json['error'])}")
+                    
+                access_token = token_json["access_token"]
+                
+                # 2. Get user info
                 user_url = "https://api.github.com/user"
-                user_headers = {
-                    "Authorization": f"Bearer {access_token}",
-                    "User-Agent": "Auth-Service-Core",
-                    "Accept": "application/vnd.github.v3+json",
-                }
-                user_resp = await client.get(user_url, headers=user_headers)
                 if user_resp.status_code != 200:
                     logger.error(f"GitHub profile fetch failed: {user_resp.text}")
                     raise ValueError("Failed to retrieve profile from GitHub")
@@ -233,11 +232,10 @@ class OAuthService:
                 if not email:
                     raise ValueError("Verified email address not found on GitHub account")
                     
-                return {
-                    "provider_user_id": provider_user_id,
-                    "email": email,
-                    "name": profile.get("login"),
-                }
+                return OAuthUserInfo(
+                    provider_id=provider_user_id,
+                    email=email,
+                )
                 
             elif provider == "discord":
                 token_url = "https://discord.com/api/v10/oauth2/token"
@@ -256,7 +254,7 @@ class OAuthService:
                 tokens = token_resp.json()
                 access_token = tokens.get("access_token")
                 
-                userinfo_url = "https://discord.com/api/v10/oauth2/userinfo"
+                userinfo_url = "https://discord.com/api/users/@me"
                 userinfo_resp = await client.get(userinfo_url, headers={"Authorization": f"Bearer {access_token}"})
                 if userinfo_resp.status_code != 200:
                     logger.error(f"Discord userinfo fetch failed: {userinfo_resp.text}")
@@ -265,11 +263,10 @@ class OAuthService:
                 email = userinfo.get("email")
                 if not email or not userinfo.get("verified", False):
                     raise ValueError("Discord account email is not verified")
-                return {
-                    "provider_user_id": str(userinfo.get("id")),
-                    "email": email,
-                    "name": userinfo.get("username"),
-                }
+                return OAuthUserInfo(
+                    provider_id=str(userinfo.get("id")),
+                    email=email,
+                )
 
             elif provider == "apple":
                 token_url = "https://appleid.apple.com/auth/token"
@@ -294,11 +291,10 @@ class OAuthService:
                 email = decoded.get("email")
                 if not email:
                     raise ValueError("Apple id_token does not contain email")
-                return {
-                    "provider_user_id": str(decoded.get("sub")),
-                    "email": email,
-                    "name": email.split("@")[0],
-                }
+                return OAuthUserInfo(
+                    provider_id=str(decoded.get("sub")),
+                    email=email,
+                )
 
             elif provider == "facebook":
                 token_url = "https://graph.facebook.com/v12.0/oauth/access_token"
@@ -315,12 +311,8 @@ class OAuthService:
                 tokens = token_resp.json()
                 access_token = tokens.get("access_token")
                 
-                userinfo_url = "https://graph.facebook.com/me"
-                userinfo_params = {
-                    "fields": "id,name,email",
-                    "access_token": access_token
-                }
-                userinfo_resp = await client.get(userinfo_url, params=userinfo_params)
+                userinfo_url = "https://graph.facebook.com/me?fields=id,email,name"
+                userinfo_resp = await client.get(userinfo_url, headers={"Authorization": f"Bearer {access_token}"})
                 if userinfo_resp.status_code != 200:
                     logger.error(f"Facebook userinfo fetch failed: {userinfo_resp.text}")
                     raise ValueError("Failed to retrieve profile from Facebook")
@@ -328,11 +320,10 @@ class OAuthService:
                 email = userinfo.get("email")
                 if not email:
                     raise ValueError("Facebook account does not have a verified email address")
-                return {
-                    "provider_user_id": str(userinfo.get("id")),
-                    "email": email,
-                    "name": userinfo.get("name"),
-                }
+                return OAuthUserInfo(
+                    provider_id=str(userinfo.get("id")),
+                    email=email,
+                )
 
             elif provider == "twitter":
                 token_url = "https://api.twitter.com/2/oauth2/token"
@@ -370,11 +361,10 @@ class OAuthService:
                 email = data_block.get("email")
                 if not email:
                     raise ValueError("Twitter account does not have an email address")
-                return {
-                    "provider_user_id": str(data_block.get("id")),
-                    "email": email,
-                    "name": data_block.get("name") or data_block.get("username"),
-                }
+                return OAuthUserInfo(
+                    provider_id=str(data_block.get("id")),
+                    email=email,
+                )
 
             elif provider == "amazon":
                 token_url = "https://api.amazon.com/auth/o2/token"
@@ -401,11 +391,10 @@ class OAuthService:
                 email = userinfo.get("email")
                 if not email:
                     raise ValueError("Amazon account does not have an email address")
-                return {
-                    "provider_user_id": str(userinfo.get("user_id")),
-                    "email": email,
-                    "name": userinfo.get("name"),
-                }
+                return OAuthUserInfo(
+                    provider_id=str(userinfo.get("user_id")),
+                    email=email,
+                )
 
             else:
                 raise ValueError(f"Unsupported provider: {provider}")

@@ -34,17 +34,19 @@ class Settings(BaseSettings):
     # Super Admin / Provisioning
     SUPER_ADMIN_API_KEY: str = Field(default="super-admin-secret-key-change-me")
     
-    # Domain configuration (DOMEN alias in env)
-    DOMAIN: str = Field(default="http://localhost:8000", validation_alias="DOMEN")
+    # Domain configuration
+    DOMAIN: str = "localhost"
+    API_BASE_URL: str = "http://localhost:8000"
+    FRONTEND_URL: str = "http://localhost:3000"
     
     # OAuth Provider Toggles
     ENABLE_GOOGLE_OAUTH: bool = Field(default=True)
     ENABLE_GITHUB_OAUTH: bool = Field(default=True)
-    ENABLE_DISCORD_OAUTH: bool = Field(default=True)
-    ENABLE_APPLE_OAUTH: bool = Field(default=True)
-    ENABLE_FACEBOOK_OAUTH: bool = Field(default=True)
+    ENABLE_DISCORD_OAUTH: bool = False
+    ENABLE_APPLE_OAUTH: bool = False
+    ENABLE_FACEBOOK_OAUTH: bool = False
     ENABLE_TWITTER_OAUTH: bool = Field(default=True)
-    ENABLE_AMAZON_OAUTH: bool = Field(default=True)
+    ENABLE_AMAZON_OAUTH: bool = False
     
     # Google OAuth
     GOOGLE_CLIENT_ID: str | None = Field(default=None)
@@ -57,18 +59,18 @@ class Settings(BaseSettings):
     GITHUB_REDIRECT_URI: str | None = Field(default=None)
     
     # Discord OAuth
-    DISCORD_CLIENT_ID: str | None = Field(default=None)
-    DISCORD_CLIENT_SECRET: str | None = Field(default=None)
+    DISCORD_CLIENT_ID: str | None = None
+    DISCORD_CLIENT_SECRET: str | None = None
     DISCORD_REDIRECT_URI: str | None = Field(default=None)
     
     # Apple OAuth
-    APPLE_CLIENT_ID: str | None = Field(default=None)
-    APPLE_CLIENT_SECRET: str | None = Field(default=None)
+    APPLE_CLIENT_ID: str | None = None
+    APPLE_CLIENT_SECRET: str | None = None
     APPLE_REDIRECT_URI: str | None = Field(default=None)
     
     # Facebook OAuth
-    FACEBOOK_CLIENT_ID: str | None = Field(default=None)
-    FACEBOOK_CLIENT_SECRET: str | None = Field(default=None)
+    FACEBOOK_CLIENT_ID: str | None = None
+    FACEBOOK_CLIENT_SECRET: str | None = None
     FACEBOOK_REDIRECT_URI: str | None = Field(default=None)
     
     # Twitter (X) OAuth
@@ -77,8 +79,8 @@ class Settings(BaseSettings):
     TWITTER_REDIRECT_URI: str | None = Field(default=None)
     
     # Amazon OAuth
-    AMAZON_CLIENT_ID: str | None = Field(default=None)
-    AMAZON_CLIENT_SECRET: str | None = Field(default=None)
+    AMAZON_CLIENT_ID: str | None = None
+    AMAZON_CLIENT_SECRET: str | None = None
     AMAZON_REDIRECT_URI: str | None = Field(default=None)
     
     # SMTP / Email Settings
@@ -95,6 +97,9 @@ class Settings(BaseSettings):
     BACKUP_CODES_COUNT: int = 10
     MFA_TOKEN_EXPIRE_MINUTES: int = 5
     
+    def get_redirect_uri(self, provider: str) -> str:
+        return f"{self.API_BASE_URL}/api/v1/auth/oauth/{provider}/callback"
+
     model_config = SettingsConfigDict(
         env_file=os.getenv("ENV_FILE", ".env.dev"),
         env_file_encoding="utf-8",

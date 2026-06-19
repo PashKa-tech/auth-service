@@ -9,7 +9,8 @@ from src.api.deps import (
     resolve_tenant,
     get_oauth_service_dep,
     RoleChecker,
-    get_two_factor_service
+    get_two_factor_service,
+    get_webauthn_service
 )
 from src.services.auth import AuthService
 from src.services.oauth import OAuthService
@@ -53,6 +54,17 @@ class TwoFactorDisableRequest(BaseModel):
 class OAuthTokenRequest(BaseModel):
     code: str
     code_verifier: str
+
+class WebAuthnLoginBeginRequest(BaseModel):
+    email: EmailStr
+
+class WebAuthnRegisterCompleteRequest(BaseModel):
+    response: dict
+    name: str = "Passkey"
+
+class WebAuthnLoginCompleteRequest(BaseModel):
+    email: EmailStr
+    response: dict
 
 class UnifiedResponse(BaseModel):
     success: bool
@@ -303,6 +315,7 @@ async def me(current_user: User = Depends(get_current_user)):
             "role": current_user.role,
             "is_active": current_user.is_active,
             "is_verified": current_user.is_verified,
+            "two_factor_enabled": current_user.is_two_factor_enabled,
         }
     )
 
@@ -467,8 +480,8 @@ async def oauth_callback(
         # 2. Resolve account (linking strategy)
         user = await oauth_service.resolve_oauth_user(
             provider=provider,
-            provider_user_id=user_info["provider_user_id"],
-            email=user_info["email"],
+            provider_user_id=user_info.provider_id,
+            email=user_info.email,
             auth_service=auth_service,
             current_user=current_user
         )
@@ -1149,3 +1162,79 @@ async def admin_stats(
 
 
 
+ 
+# --- WebAuthn Routes ---
+
+@router.post("/webauthn/register/begin", response_model=UnifiedResponse)
+async def webauthn_register_begin(
+    current_user: User = Depends(get_current_user),
+    webauthn_service: "WebAuthnService" = Depends(get_webauthn_service)
+):
+    try:
+        options = await webauthn_service.begin_registration(current_user.id)
+        return UnifiedResponse(success=True, data=options)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.post("/webauthn/register/complete", response_model=UnifiedResponse)
+async def webauthn_register_complete(
+    body: WebAuthnRegisterCompleteRequest,
+    current_user: User = Depends(get_current_user),
+    webauthn_service: "WebAuthnService" = Depends(get_webauthn_service)
+):
+    try:
+        result = await webauthn_service.complete_registration(current_user.id, body.response, body.name)
+        return UnifiedResponse(success=True, data=result)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.post("/webauthn/login/begin", response_model=UnifiedResponse)
+async def webauthn_login_begin(
+    body: WebAuthnLoginBeginRequest,
+    webauthn_service: "WebAuthnService" = Depends(get_webauthn_service)
+):
+    try:
+        options = await webauthn_service.begin_login(body.email)
+        return UnifiedResponse(success=True, data=options)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.post("/webauthn/login/complete", response_model=UnifiedResponse)
+async def webauthn_login_complete(
+    request: Request,
+    response: Response,
+    body: WebAuthnLoginCompleteRequest,
+    webauthn_service: "WebAuthnService" = Depends(get_webauthn_service)
+):
+    try:
+        ip = get_client_ip(request)
+        ua = request.headers.get("User-Agent")
+        lang = request.headers.get("Accept-Language")
+        
+        login_result = await webauthn_service.complete_login(
+            email=body.email,
+            response_data=body.response,
+            ip_address=ip,
+            user_agent=ua,
+            accept_language=lang
+        )
+        
+        access_token = login_result.access_token
+        refresh_token = login_result.refresh_token
+        session = login_result.session
+
+        mobile = is_mobile_client(request)
+        if mobile:
+            return UnifiedResponse(
+                success=True,
+                data={
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "user": {"id": str(session.user_id), "role": "user"}
+                }
+            )
+        else:
+            set_auth_cookies(response, access_token, refresh_token)
+            return UnifiedResponse(success=True, data={"message": "Login successful"})
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))

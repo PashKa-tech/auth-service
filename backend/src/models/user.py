@@ -31,3 +31,4 @@ class User(Base):
     oauth_accounts = relationship("OAuthAccount", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user")
     backup_codes = relationship("TwoFactorBackupCode", back_populates="user", cascade="all, delete-orphan")
+    passkeys = relationship("WebAuthnCredential", back_populates="user", cascade="all, delete-orphan")
