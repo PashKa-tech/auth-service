@@ -123,22 +123,19 @@ async def resolve_tenant(
     # 6. Check for Token in Query Params or POST Body (fallback for email verification or password reset)
     token_param = request.query_params.get("token")
     if not tenant_id and token_param:
-        from src.core.redis import init_redis
         try:
-            redis_client = await init_redis()
-            val = await redis_client.get(f"email_verify:{token_param}")
-            if not val:
-                val = await redis_client.get(f"password_reset:{token_param}")
+            from src.models.token import VerificationToken
+            from src.models.user import User as DBUser
+            from sqlalchemy import select
             
-            if val:
-                val_str = val.decode("utf-8") if isinstance(val, bytes) else str(val)
-                user_uuid = uuid.UUID(val_str)
-                from src.models.user import User as DBUser
-                from sqlalchemy import select
-                res = await db.execute(select(DBUser).where(DBUser.id == user_uuid))
-                db_user = res.scalar_one_or_none()
-                if db_user:
-                    tenant_id = db_user.tenant_id
+            res = await db.execute(
+                select(DBUser)
+                .join(VerificationToken, VerificationToken.user_id == DBUser.id)
+                .where(VerificationToken.token == token_param)
+            )
+            db_user = res.scalar_one_or_none()
+            if db_user:
+                tenant_id = db_user.tenant_id
         except Exception:
             pass
 
@@ -147,18 +144,18 @@ async def resolve_tenant(
             body_json = await request.json()
             token_body = body_json.get("token")
             if token_body:
-                from src.core.redis import init_redis
-                redis_client = await init_redis()
-                val = await redis_client.get(f"password_reset:{token_body}")
-                if val:
-                    val_str = val.decode("utf-8") if isinstance(val, bytes) else str(val)
-                    user_uuid = uuid.UUID(val_str)
-                    from src.models.user import User as DBUser
-                    from sqlalchemy import select
-                    res = await db.execute(select(DBUser).where(DBUser.id == user_uuid))
-                    db_user = res.scalar_one_or_none()
-                    if db_user:
-                        tenant_id = db_user.tenant_id
+                from src.models.token import VerificationToken
+                from src.models.user import User as DBUser
+                from sqlalchemy import select
+                
+                res = await db.execute(
+                    select(DBUser)
+                    .join(VerificationToken, VerificationToken.user_id == DBUser.id)
+                    .where(VerificationToken.token == token_body)
+                )
+                db_user = res.scalar_one_or_none()
+                if db_user:
+                    tenant_id = db_user.tenant_id
         except Exception:
             pass
 

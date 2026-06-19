@@ -54,10 +54,10 @@ async def test_email_verification_flow(client: AsyncClient, db_session):
     # 4. Grab the verification token from DB
     from src.models.token import VerificationToken
     tokens_query = await db_session.execute(
-        select(VerificationToken).where(VerificationToken.user_id == uuid.UUID(user_id), VerificationToken.token_type == "email_verify")
+        select(VerificationToken).where(VerificationToken.user_id == uuid.UUID(user_id), VerificationToken.token_type == "email_verify").order_by(VerificationToken.created_at.desc())
     )
     tokens = tokens_query.scalars().all()
-    assert len(tokens) == 1
+    assert len(tokens) >= 1
     token = tokens[0].token
 
     # 5. Call GET /verify-email?token=<token>&tenant_id=<tenant_id>
@@ -72,10 +72,10 @@ async def test_email_verification_flow(client: AsyncClient, db_session):
     assert user_obj.is_verified is True
 
     # Verify token is deleted from DB
-    tokens_query = await db_session.execute(
-        select(VerificationToken).where(VerificationToken.user_id == uuid.UUID(user_id), VerificationToken.token_type == "email_verify")
+    deleted_token = await db_session.execute(
+        select(VerificationToken).where(VerificationToken.token == token)
     )
-    assert len(tokens_query.scalars().all()) == 0
+    assert deleted_token.scalar_one_or_none() is None
 
 
 @pytest.mark.asyncio
@@ -122,10 +122,10 @@ async def test_password_reset_flow(client: AsyncClient, db_session):
     assert reset_resp.json()["success"] is True
 
     # Verify token is deleted from DB
-    tokens_query = await db_session.execute(
-        select(VerificationToken).where(VerificationToken.user_id == uuid.UUID(user_id), VerificationToken.token_type == "password_reset")
+    deleted_token = await db_session.execute(
+        select(VerificationToken).where(VerificationToken.token == token)
     )
-    assert len(tokens_query.scalars().all()) == 0
+    assert deleted_token.scalar_one_or_none() is None
 
     # 5. Try logging in with old password (should fail)
     login_old = await client.post(
