@@ -1,6 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { Users, ShieldAlert, Layers, Search, FileText, Globe } from 'lucide-react';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { api } from '../services/api';
+
+const activeUsersData = [
+  { name: 'Mon', users: 400 },
+  { name: 'Tue', users: 300 },
+  { name: 'Wed', users: 550 },
+  { name: 'Thu', users: 450 },
+  { name: 'Fri', users: 700 },
+  { name: 'Sat', users: 650 },
+  { name: 'Sun', users: 800 },
+];
+
+const loginsPerDayData = [
+  { name: 'Mon', logins: 1200 },
+  { name: 'Tue', logins: 1100 },
+  { name: 'Wed', logins: 1500 },
+  { name: 'Thu', logins: 1400 },
+  { name: 'Fri', logins: 1800 },
+  { name: 'Sat', logins: 1600 },
+  { name: 'Sun', logins: 1900 },
+];
 
 export const Admin: React.FC = () => {
   const [stats, setStats] = useState<any>({ users_count: 0, sessions_count: 0, anomaly_count: 0 });
@@ -298,8 +319,48 @@ export const Admin: React.FC = () => {
 
       {/* Analytics Section */}
       {activeTab === 'analytics' && (
-        <div className="glass-card" style={{ minHeight: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <h2 style={{ color: 'var(--text-muted)' }}>Analytics charts coming in Phase 14</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          <div className="glass-card" style={{ padding: '1.5rem' }}>
+            <h2 style={{ fontSize: '1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Users size={20} /> Active Users
+            </h2>
+            <div style={{ width: '100%', height: 350 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={activeUsersData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                  <XAxis dataKey="name" stroke="var(--text-secondary)" />
+                  <YAxis stroke="var(--text-secondary)" />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px' }}
+                    itemStyle={{ color: 'var(--text-primary)' }}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="users" stroke="#8b5cf6" strokeWidth={3} activeDot={{ r: 8 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="glass-card" style={{ padding: '1.5rem' }}>
+            <h2 style={{ fontSize: '1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Layers size={20} /> Logins per day
+            </h2>
+            <div style={{ width: '100%', height: 350 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={loginsPerDayData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                  <XAxis dataKey="name" stroke="var(--text-secondary)" />
+                  <YAxis stroke="var(--text-secondary)" />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '8px' }}
+                    itemStyle={{ color: 'var(--text-primary)' }}
+                  />
+                  <Legend />
+                  <Bar dataKey="logins" fill="#ec4899" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         </div>
       )}
     </div>

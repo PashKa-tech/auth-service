@@ -15,7 +15,7 @@ from src.core.security import (
 from src.core.fingerprint import calculate_device_fingerprint
 from src.repositories.user import UserRepository
 from src.repositories.session import SessionRepository
-from src.repositories.token import TokenRepository
+from src.repositories.token import TokenRepository, VerificationTokenRepository
 from src.repositories.audit import AuditRepository
 from src.repositories.oauth import OAuthRepository
 from src.services.email import EmailService
@@ -47,6 +47,7 @@ class AuthService:
         token_repo: TokenRepository,
         audit_repo: AuditRepository,
         oauth_repo: OAuthRepository,
+        verification_token_repo: VerificationTokenRepository,
         email_service: EmailService
     ):
         self.user_repo = user_repo
@@ -54,6 +55,7 @@ class AuthService:
         self.token_repo = token_repo
         self.audit_repo = audit_repo
         self.oauth_repo = oauth_repo
+        self.verification_token_repo = verification_token_repo
         self.email_service = email_service
         self.tenant_id = user_repo.tenant_id
 
@@ -144,6 +146,22 @@ class AuthService:
             password_hash=pwd_hash,
             role=role,
             is_verified=False # Requires verification link (Phase 2)
+        )
+
+        # Generate 'email_verify' token
+        raw_token = generate_opaque_token()
+        expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=24)
+        await self.verification_token_repo.create(
+            user_id=user.id,
+            token=raw_token,
+            token_type='email_verify',
+            expires_at=expiry
+        )
+
+        verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
+        await self.email_service.send_verification_email(
+            email=user.email,
+            verification_link=verify_url
         )
 
         # 3. Write Audit Log
@@ -524,52 +542,52 @@ class AuthService:
         return revoked_count
 
     async def request_email_verification(self, user_id: uuid.UUID) -> None:
-        """Generate verification token, store in Redis, and email the link to the user."""
+        """Generate verification token, store in repository, and email the link to the user."""
         user = await self.user_repo.get_by_id(user_id)
         if not user:
             raise ValueError("User not found")
         if user.is_verified:
             return
             
-        token = generate_opaque_token()
-        redis_key = f"email_verify:{token}"
+        raw_token = generate_opaque_token()
+        expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=24)
         
-        from src.core.redis import init_redis
-        client = await init_redis()
-        # Token valid for 24 hours (86400 seconds)
-        await client.set(redis_key, str(user_id), ex=86400)
+        await self.verification_token_repo.create(
+            user_id=user.id,
+            token=raw_token,
+            token_type='email_verify',
+            expires_at=expiry
+        )
         
-        verify_url = f"http://localhost:8000/api/v1/auth/verify-email?token={token}&tenant_id={self.tenant_id}"
-        email_body = f"<p>Please verify your email by clicking <a href='{verify_url}'>here</a>.</p>"
-        
-        await self.email_service.send_email(
-            to_email=user.email,
-            subject="Verify your Email - Auth Service",
-            body=email_body
+        verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
+        await self.email_service.send_verification_email(
+            email=user.email,
+            verification_link=verify_url
         )
 
     async def verify_email(self, token: str) -> None:
-        """Verify user's email using token from Redis."""
-        redis_key = f"email_verify:{token}"
-        from src.core.redis import init_redis
-        client = await init_redis()
-        
-        user_id_str = await client.get(redis_key)
-        if not user_id_str:
+        """Verify user's email using token from repository."""
+        v_token = await self.verification_token_repo.get_by_token(token, token_type='email_verify')
+        if not v_token:
             raise ValueError("Invalid or expired verification token")
             
-        user_id = uuid.UUID(user_id_str)
-        user = await self.user_repo.get_by_id(user_id)
+        if v_token.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+            await self.verification_token_repo.delete(v_token.id)
+            raise ValueError("Verification token has expired")
+            
+        user = await self.user_repo.get_by_id(v_token.user_id)
         if not user:
             raise ValueError("User not found")
             
         user.is_verified = True
         await self.user_repo.update(user)
-        await client.delete(redis_key)
+        
+        # Delete token after successful use
+        await self.verification_token_repo.delete(v_token.id)
         
         await self.audit_repo.create(
             action="email_verified",
-            user_id=user_id
+            user_id=user.id
         )
 
     async def request_password_reset(self, email: str) -> None:
@@ -579,35 +597,33 @@ class AuthService:
             logger.warning(f"Password reset requested for non-existent email {email}")
             return
             
-        token = generate_opaque_token()
-        redis_key = f"password_reset:{token}"
+        raw_token = generate_opaque_token()
+        expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1)
         
-        from src.core.redis import init_redis
-        client = await init_redis()
-        # Reset link valid for 1 hour (3600 seconds)
-        await client.set(redis_key, str(user.id), ex=3600)
+        await self.verification_token_repo.create(
+            user_id=user.id,
+            token=raw_token,
+            token_type='password_reset',
+            expires_at=expiry
+        )
         
-        reset_url = f"http://localhost:8000/api/v1/auth/reset-password?token={token}&tenant_id={self.tenant_id}"
-        email_body = f"<p>Reset your password by clicking <a href='{reset_url}'>here</a>. Valid for 1 hour.</p>"
-        
-        await self.email_service.send_email(
-            to_email=user.email,
-            subject="Reset your Password - Auth Service",
-            body=email_body
+        reset_url = f"{settings.FRONTEND_URL}/reset-password?token={raw_token}"
+        await self.email_service.send_password_reset_email(
+            email=user.email,
+            reset_link=reset_url
         )
 
     async def reset_password(self, token: str, new_password: str) -> None:
         """Reset user's password, invalidating all current sessions."""
-        redis_key = f"password_reset:{token}"
-        from src.core.redis import init_redis
-        client = await init_redis()
-        
-        user_id_str = await client.get(redis_key)
-        if not user_id_str:
+        v_token = await self.verification_token_repo.get_by_token(token, token_type='password_reset')
+        if not v_token:
             raise ValueError("Invalid or expired password reset token")
             
-        user_id = uuid.UUID(user_id_str)
-        user = await self.user_repo.get_by_id(user_id)
+        if v_token.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+            await self.verification_token_repo.delete(v_token.id)
+            raise ValueError("Password reset token has expired")
+            
+        user = await self.user_repo.get_by_id(v_token.user_id)
         if not user:
             raise ValueError("User not found")
             
@@ -616,10 +632,12 @@ class AuthService:
         await self.user_repo.update(user)
         
         # Security Best Practice: Revoke all sessions on password change
-        await self.logout_all_sessions(user_id)
-        await client.delete(redis_key)
+        await self.logout_all_sessions(user.id)
+        
+        # Delete token after successful use
+        await self.verification_token_repo.delete(v_token.id)
         
         await self.audit_repo.create(
             action="password_reset_success",
-            user_id=user_id
+            user_id=user.id
         )

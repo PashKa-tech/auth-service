@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Shield, Smartphone, Trash2, Link2, Unlink, CheckCircle, AlertCircle, RefreshCw, Layers, Key } from 'lucide-react';
 import { api, API_BASE_URL } from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
+import { motion } from 'framer-motion';
 
 export const Profile: React.FC = () => {
   const [user, setUser] = useState<any>(null);
@@ -216,7 +217,7 @@ export const Profile: React.FC = () => {
         <div className="flex flex-col gap-lg">
           
           {/* User Info Card */}
-          <div className="glass-card">
+          <motion.div className="glass-card glass" whileHover={{ scale: 1.02 }}>
             <h2 style={{ fontSize: '1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Smartphone size={20} /> Информация об аккаунте
             </h2>
@@ -238,10 +239,10 @@ export const Profile: React.FC = () => {
                 </p>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* 2FA Card */}
-          <div className="glass-card">
+          <motion.div className="glass-card glass" whileHover={{ scale: 1.02 }}>
             <h2 style={{ fontSize: '1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Shield size={20} /> Двухфакторная аутентификация (2FA)
             </h2>
@@ -409,10 +410,10 @@ export const Profile: React.FC = () => {
                 )}
               </div>
             )}
-          </div>
+          </motion.div>
 
           {/* Passkeys Card */}
-          <div className="glass-card">
+          <motion.div className="glass-card glass" whileHover={{ scale: 1.02 }}>
             <h2 style={{ fontSize: '1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Key size={20} /> Passkeys (Биометрия)
             </h2>
@@ -429,14 +430,14 @@ export const Profile: React.FC = () => {
             >
               {actionLoading === 'registerPasskey' ? 'Загрузка...' : 'Добавить Passkey'}
             </button>
-          </div>
+          </motion.div>
         </div>
 
         {/* Right Column: Sessions and Linked Accounts */}
         <div className="flex flex-col gap-lg">
           
           {/* Linked OAuth Accounts */}
-          <div className="glass-card">
+          <motion.div className="glass-card glass" whileHover={{ scale: 1.02 }}>
             <h2 style={{ fontSize: '1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Link2 size={20} /> Подключенные соцсети
             </h2>
@@ -486,10 +487,10 @@ export const Profile: React.FC = () => {
                 );
               })}
             </div>
-          </div>
+          </motion.div>
 
           {/* Active Sessions */}
-          <div className="glass-card">
+          <motion.div className="glass-card glass" whileHover={{ scale: 1.02 }}>
             <div className="flex justify-between align-center" style={{ marginBottom: '1.25rem' }}>
               <h2 style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Layers size={20} /> Активные сеансы
@@ -534,7 +535,7 @@ export const Profile: React.FC = () => {
                 </div>
               ))}
             </div>
-          </div>
+          </motion.div>
 
         </div>
       </div>

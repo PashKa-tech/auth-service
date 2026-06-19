@@ -673,8 +673,8 @@ async def unlink_account(
 
 # --- Email Verification & Password Reset Endpoints ---
 
-@router.post("/request-email-verification", response_model=UnifiedResponse)
-async def request_email_verification(
+@router.post("/request-verification", response_model=UnifiedResponse)
+async def request_verification(
     request: Request,
     current_user: User = Depends(get_current_user),
     auth_service: AuthService = Depends(get_auth_service),

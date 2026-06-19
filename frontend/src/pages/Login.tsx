@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { LogIn, UserPlus, Settings, CheckCircle, AlertCircle, Key } from 'lucide-react';
 import { api, getApiKey, setApiKey, API_BASE_URL } from '../services/api';
+import { motion } from 'framer-motion';
 
 interface LoginProps {
   onLoginSuccess: (user: any) => void;
@@ -15,6 +16,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [registrationSuccess, setRegistrationSuccess] = useState(false);
   
   // Developer/Tenant Settings state
   const [apiKey, setApiKeyInput] = useState(getApiKey());
@@ -56,9 +58,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       if (isRegister) {
         // Registration flow
         await api.post('/api/v1/auth/register', { email, password });
-        setInfo('Регистрация прошла успешно! Теперь вы можете войти.');
-        setIsRegister(false);
-        setPassword('');
+        setRegistrationSuccess(true);
       } else {
         // Login flow
         const resp = await api.post('/api/v1/auth/login', { email, password });
@@ -158,7 +158,12 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
   return (
     <div className="auth-page">
-      <div className="glass-card auth-card glow-card">
+      <motion.div 
+        className="glass auth-card glow-card"
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: 'easeOut' }}
+      >
         {/* Header */}
         <div style={{ position: 'relative', textAlign: 'center', marginBottom: '2rem' }}>
           <button
@@ -259,6 +264,32 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               Вернуться назад
             </button>
           </form>
+        ) : registrationSuccess ? (
+          <div className="flex-col flex-center" style={{ textAlign: 'center', padding: '2rem 0' }}>
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+            >
+              <CheckCircle size={64} color="var(--color-success, #10b981)" style={{ margin: '0 auto 1rem auto', display: 'block' }} />
+            </motion.div>
+            <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>Успешно!</h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
+              Пожалуйста, проверьте вашу почту для подтверждения аккаунта.
+            </p>
+            <button
+              onClick={() => {
+                setRegistrationSuccess(false);
+                setIsRegister(false);
+                setPassword('');
+                setInfo('');
+              }}
+              className="btn btn-primary"
+              style={{ width: '100%' }}
+            >
+              Перейти ко входу
+            </button>
+          </div>
         ) : (
           /* Normal Auth Forms */
           <>
@@ -276,7 +307,14 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Пароль</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <label className="form-label" style={{ marginBottom: 0 }}>Пароль</label>
+                  {!isRegister && (
+                    <Link to="/forgot-password" style={{ fontSize: '0.85rem', color: 'var(--color-primary)', textDecoration: 'none', fontWeight: 500 }}>
+                      Забыли пароль?
+                    </Link>
+                  )}
+                </div>
                 <input
                   type="password"
                   className="form-input"
@@ -357,7 +395,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             )}
           </>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 };
