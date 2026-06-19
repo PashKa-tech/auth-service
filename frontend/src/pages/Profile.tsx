@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Smartphone, Trash2, Link2, Unlink, CheckCircle, AlertCircle, RefreshCw, Layers, Key } from 'lucide-react';
+import { Shield, Smartphone, Trash2, Link2, Unlink, CheckCircle, AlertCircle, RefreshCw, Layers, Key, History, Activity } from 'lucide-react';
 import { api, API_BASE_URL } from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion } from 'framer-motion';
@@ -7,6 +7,7 @@ import { motion } from 'framer-motion';
 export const Profile: React.FC = () => {
   const [user, setUser] = useState<any>(null);
   const [sessions, setSessions] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [linkedAccounts, setLinkedAccounts] = useState<any[]>([]);
   
   // Status/Error state
@@ -32,6 +33,9 @@ export const Profile: React.FC = () => {
 
       const oauthResp = await api.get('/api/v1/auth/me/linked-accounts');
       setLinkedAccounts(oauthResp.data);
+
+      const auditResp = await api.get('/api/v1/auth/me/audit');
+      setAuditLogs(auditResp.data);
     } catch (err: any) {
       setError(err.message || 'Failed to load profile data');
     } finally {
@@ -54,6 +58,25 @@ export const Profile: React.FC = () => {
       window.location.href = '/login';
     } catch (err: any) {
       setError(err.message || 'Failed to logout from other sessions');
+      setActionLoading(null);
+    }
+  };
+
+  const handleRevokeSession = async (sessionId: string) => {
+    setError('');
+    setSuccess('');
+    setActionLoading(`revoke-${sessionId}`);
+    try {
+      await api.delete(`/api/v1/auth/sessions/${sessionId}`);
+      setSuccess('Session revoked successfully.');
+      await fetchData();
+    } catch (err: any) {
+      if (err.message?.includes('Step-up')) {
+        setError('Step-up authentication required to revoke specific sessions. Please log in again to verify your identity.');
+      } else {
+        setError(err.message || 'Failed to revoke session');
+      }
+    } finally {
       setActionLoading(null);
     }
   };
@@ -530,8 +553,79 @@ export const Profile: React.FC = () => {
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
                     Created: {new Date(sess.created_at).toLocaleString()}
                   </p>
+                  <button
+                    onClick={() => handleRevokeSession(sess.id)}
+                    className="btn btn-secondary"
+                    style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', marginTop: '0.5rem', width: '100%', borderColor: 'rgba(239, 68, 68, 0.3)', color: 'var(--text-primary)' }}
+                    disabled={actionLoading === `revoke-${sess.id}`}
+                  >
+                    <Trash2 size={12} style={{ display: 'inline', marginRight: '4px' }} /> 
+                    {actionLoading === `revoke-${sess.id}` ? 'Revoking...' : 'Revoke Session'}
+                  </button>
                 </div>
               ))}
+            </div>
+          </motion.div>
+
+          {/* Security Audit History */}
+          <motion.div className="glass-card" whileHover={{ scale: 1.01 }}>
+            <h2 style={{ fontSize: '1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 500 }}>
+              <History size={20} /> Security History
+            </h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '400px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+              {auditLogs.length === 0 ? (
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>No recent activity.</p>
+              ) : (
+                auditLogs.map((log) => {
+                  let badgeClass = 'badge badge-gray';
+                  if (log.action.includes('success') || log.action === 'email_verified' || log.action.includes('enabled')) {
+                    badgeClass = 'badge badge-green';
+                  } else if (log.action.includes('failed') || log.action.includes('suspicious') || log.action.includes('attack')) {
+                    badgeClass = 'badge badge-red';
+                  } else if (log.action.includes('revoked') || log.action.includes('logged_out') || log.action.includes('disabled')) {
+                    badgeClass = 'badge badge-purple';
+                  }
+
+                  return (
+                    <div
+                      key={log.id}
+                      style={{
+                        padding: '1rem',
+                        background: 'transparent',
+                        border: '1px solid var(--border-glass)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem'
+                      }}
+                    >
+                      <div className="flex justify-between align-center">
+                        <span className={badgeClass} style={{ fontSize: '0.7rem', fontWeight: 600 }}>
+                          {log.action.replace(/_/g, ' ').toUpperCase()}
+                        </span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {new Date(log.timestamp).toLocaleString()}
+                        </span>
+                      </div>
+                      
+                      <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <Activity size={12} /> {log.ip_address || 'Unknown IP'}
+                        </div>
+                        {log.user_agent && (
+                          <div style={{ marginTop: '0.25rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {log.user_agent}
+                          </div>
+                        )}
+                        {log.metadata && Object.keys(log.metadata).length > 0 && (
+                          <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(0,0,0,0.2)', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                            {JSON.stringify(log.metadata)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </motion.div>
 

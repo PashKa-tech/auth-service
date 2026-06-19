@@ -634,3 +634,42 @@ class AuthService:
             action="password_reset_success",
             user_id=user.id
         )
+
+    async def get_user_audit_logs(self, user_id: uuid.UUID, limit: int = 50) -> list:
+        """Fetch recent audit logs for a specific user."""
+        from sqlalchemy import select, desc
+        from src.models.audit import AuditLog
+        
+        result = await self.audit_repo.db.execute(
+            select(AuditLog)
+            .where(AuditLog.user_id == user_id)
+            .order_by(desc(AuditLog.timestamp))
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def revoke_specific_session(self, user_id: uuid.UUID, session_id: uuid.UUID) -> bool:
+        """Revoke a specific session and its tokens, if it belongs to the user."""
+        session = await self.session_repo.get_by_id(session_id)
+        if not session or session.user_id != user_id:
+            return False
+
+        if not session.is_revoked:
+            ACTIVE_SESSIONS.labels(tenant_id=str(self.tenant_id)).dec()
+            
+        await self.session_repo.revoke(session.id)
+
+        from sqlalchemy import update
+        from src.models.token import RefreshToken
+        await self.token_repo.db.execute(
+            update(RefreshToken)
+            .where(RefreshToken.session_id == session.id)
+            .values(is_revoked=True)
+        )
+
+        await self.audit_repo.create(
+            action="specific_session_revoked",
+            user_id=user_id,
+            metadata_json={"revoked_session_id": str(session.id)}
+        )
+        return True
