@@ -148,12 +148,9 @@ class AuthService:
             is_verified=False # Requires verification link (Phase 2)
         )
 
-        # Generate 'email_verify' token
-        raw_token = generate_opaque_token()
         expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=24)
-        await self.verification_token_repo.create(
+        raw_token = await self.verification_token_repo.create_token(
             user_id=user.id,
-            token=raw_token,
             token_type='email_verify',
             expires_at=expiry
         )
@@ -552,7 +549,7 @@ class AuthService:
         raw_token = generate_opaque_token()
         expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=24)
         
-        await self.verification_token_repo.create(
+        await self.verification_token_repo.create_token(
             user_id=user.id,
             token=raw_token,
             token_type='email_verify',
@@ -567,12 +564,12 @@ class AuthService:
 
     async def verify_email(self, token: str) -> None:
         """Verify user's email using token from repository."""
-        v_token = await self.verification_token_repo.get_by_token(token, token_type='email_verify')
+        v_token = await self.verification_token_repo.get_valid_token(token, token_type='email_verify')
         if not v_token:
             raise ValueError("Invalid or expired verification token")
             
         if v_token.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
-            await self.verification_token_repo.delete(v_token.id)
+            await self.verification_token_repo.delete_token(v_token.id)
             raise ValueError("Verification token has expired")
             
         user = await self.user_repo.get_by_id(v_token.user_id)
@@ -583,7 +580,7 @@ class AuthService:
         await self.user_repo.update(user)
         
         # Delete token after successful use
-        await self.verification_token_repo.delete(v_token.id)
+        await self.verification_token_repo.delete_token(v_token.id)
         
         await self.audit_repo.create(
             action="email_verified",
@@ -600,7 +597,7 @@ class AuthService:
         raw_token = generate_opaque_token()
         expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1)
         
-        await self.verification_token_repo.create(
+        await self.verification_token_repo.create_token(
             user_id=user.id,
             token=raw_token,
             token_type='password_reset',
@@ -615,12 +612,12 @@ class AuthService:
 
     async def reset_password(self, token: str, new_password: str) -> None:
         """Reset user's password, invalidating all current sessions."""
-        v_token = await self.verification_token_repo.get_by_token(token, token_type='password_reset')
+        v_token = await self.verification_token_repo.get_valid_token(token, token_type='password_reset')
         if not v_token:
             raise ValueError("Invalid or expired password reset token")
             
         if v_token.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
-            await self.verification_token_repo.delete(v_token.id)
+            await self.verification_token_repo.delete_token(v_token.id)
             raise ValueError("Password reset token has expired")
             
         user = await self.user_repo.get_by_id(v_token.user_id)
@@ -635,7 +632,7 @@ class AuthService:
         await self.logout_all_sessions(user.id)
         
         # Delete token after successful use
-        await self.verification_token_repo.delete(v_token.id)
+        await self.verification_token_repo.delete_token(v_token.id)
         
         await self.audit_repo.create(
             action="password_reset_success",
