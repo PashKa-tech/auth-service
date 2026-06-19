@@ -134,6 +134,10 @@ async def test_oauth_redirect_urls(client: AsyncClient, monkeypatch):
     monkeypatch.setattr(settings, "FACEBOOK_CLIENT_ID", "facebook-id")
     monkeypatch.setattr(settings, "TWITTER_CLIENT_ID", "twitter-id")
     monkeypatch.setattr(settings, "AMAZON_CLIENT_ID", "amazon-id")
+    monkeypatch.setattr(settings, "ENABLE_DISCORD_OAUTH", True)
+    monkeypatch.setattr(settings, "ENABLE_APPLE_OAUTH", True)
+    monkeypatch.setattr(settings, "ENABLE_FACEBOOK_OAUTH", True)
+    monkeypatch.setattr(settings, "ENABLE_AMAZON_OAUTH", True)
     
     headers = {"X-Api-Key": TEST_API_KEY}
     
@@ -483,6 +487,10 @@ async def test_oauth_flow_new_providers(client: AsyncClient, db_session: AsyncSe
     monkeypatch.setattr(settings, "TWITTER_CLIENT_SECRET", "twitter-secret")
     monkeypatch.setattr(settings, "AMAZON_CLIENT_ID", "amazon-id")
     monkeypatch.setattr(settings, "AMAZON_CLIENT_SECRET", "amazon-secret")
+    monkeypatch.setattr(settings, "ENABLE_DISCORD_OAUTH", True)
+    monkeypatch.setattr(settings, "ENABLE_APPLE_OAUTH", True)
+    monkeypatch.setattr(settings, "ENABLE_FACEBOOK_OAUTH", True)
+    monkeypatch.setattr(settings, "ENABLE_AMAZON_OAUTH", True)
     
     headers = {"X-Api-Key": TEST_API_KEY}
     
