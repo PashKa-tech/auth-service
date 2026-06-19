@@ -16,14 +16,14 @@ class EmailService:
             autoescape=select_autoescape(['html', 'xml'])
         )
 
-    async def _send_email(self, to_email: str, subject: str, html_content: str):
+    async def send_email(self, to_email: str, subject: str, body: str):
         if settings.USE_MOCK_EMAIL:
             # Local development / Testing mock mode
             logger.info("---------------- [MOCK EMAIL SENT] ----------------")
             logger.info(f"To:      {to_email}")
             logger.info(f"Subject: {subject}")
             logger.info(f"Body (HTML):")
-            logger.info(html_content)
+            logger.info(body)
             logger.info("---------------------------------------------------")
             return
 
@@ -32,7 +32,7 @@ class EmailService:
         message["To"] = to_email
         message["Subject"] = subject
 
-        part = MIMEText(html_content, "html")
+        part = MIMEText(body, "html")
         message.attach(part)
 
         logger.info(f"Sending SMTP email to {to_email} with subject: {subject}")
@@ -58,19 +58,19 @@ class EmailService:
     async def send_verification_email(self, email: str, verification_link: str):
         template = self.env.get_template("email_verify.html")
         html_content = template.render(verification_link=verification_link, email=email)
-        await self._send_email(
+        await self.send_email(
             to_email=email,
             subject="Verify your email address",
-            html_content=html_content
+            body=html_content
         )
 
     async def send_password_reset_email(self, email: str, reset_link: str):
         template = self.env.get_template("password_reset.html")
         html_content = template.render(reset_link=reset_link, email=email)
-        await self._send_email(
+        await self.send_email(
             to_email=email,
             subject="Reset your password",
-            html_content=html_content
+            body=html_content
         )
 
 email_service = EmailService()

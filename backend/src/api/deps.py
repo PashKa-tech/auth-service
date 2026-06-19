@@ -245,15 +245,24 @@ async def get_two_factor_service(
 ) -> TwoFactorService:
     return TwoFactorService(user_repo, two_factor_repo, email_service)
 
+from src.repositories.token import TokenRepository, VerificationTokenRepository
+
+async def get_verification_token_repository(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+) -> VerificationTokenRepository:
+    return VerificationTokenRepository(db, tenant_id)
+
 async def get_auth_service(
     user_repo: UserRepository = Depends(get_user_repository),
     session_repo: SessionRepository = Depends(get_session_repository),
     token_repo: TokenRepository = Depends(get_token_repository),
     audit_repo: AuditRepository = Depends(get_audit_repository),
     oauth_repo: OAuthRepository = Depends(get_oauth_repository),
+    verification_token_repo: VerificationTokenRepository = Depends(get_verification_token_repository),
     email_service: EmailService = Depends(get_email_service)
 ) -> AuthService:
-    return AuthService(user_repo, session_repo, token_repo, audit_repo, oauth_repo, email_service)
+    return AuthService(user_repo, session_repo, token_repo, audit_repo, oauth_repo, verification_token_repo, email_service)
 
 async def get_oauth_service_dep(
     oauth_repo: OAuthRepository = Depends(get_oauth_repository)
