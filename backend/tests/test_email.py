@@ -44,7 +44,7 @@ async def test_email_verification_flow(client: AsyncClient, db_session):
 
     # 3. Request email verification
     req_verify_resp = await client.post(
-        "/api/v1/auth/request-email-verification",
+        "/api/v1/auth/request-verification",
         headers=headers,
         cookies=cookies
     )

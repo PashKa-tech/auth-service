@@ -594,12 +594,10 @@ class AuthService:
             logger.warning(f"Password reset requested for non-existent email {email}")
             return
             
-        raw_token = generate_opaque_token()
         expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1)
         
-        await self.verification_token_repo.create_token(
+        raw_token = await self.verification_token_repo.create_token(
             user_id=user.id,
-            token=raw_token,
             token_type='password_reset',
             expires_at=expiry
         )
