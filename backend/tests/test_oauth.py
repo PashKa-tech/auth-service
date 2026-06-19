@@ -83,7 +83,7 @@ def mock_oauth_http(monkeypatch):
                 "login": "github_tester",
                 "email": None # Trigger emails endpoint
             })
-        elif "discord.com/api/v10/oauth2/userinfo" in url_str:
+        elif "discord.com/api/users/@me" in url_str:
             assert "mock-discord-access-token" in auth_header
             return MockResponse({
                 "id": "discord_sub_12345",

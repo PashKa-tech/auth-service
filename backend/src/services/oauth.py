@@ -203,6 +203,11 @@ class OAuthService:
                 
                 # 2. Get user info
                 user_url = "https://api.github.com/user"
+                user_headers = {
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/json"
+                }
+                user_resp = await client.get(user_url, headers=user_headers)
                 if user_resp.status_code != 200:
                     logger.error(f"GitHub profile fetch failed: {user_resp.text}")
                     raise ValueError("Failed to retrieve profile from GitHub")

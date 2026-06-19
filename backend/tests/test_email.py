@@ -51,16 +51,14 @@ async def test_email_verification_flow(client: AsyncClient, db_session):
     assert req_verify_resp.status_code == 200
     assert req_verify_resp.json()["success"] is True
 
-    # 4. Grab the verification token from Redis
-    redis_client = await init_redis()
-    keys = await redis_client.keys("email_verify:*")
-    assert len(keys) == 1
-    verify_key = keys[0]
-    token = verify_key.split(":")[1]
-
-    # Verify that the value stored in Redis is the user_id
-    val = await redis_client.get(verify_key)
-    assert val == user_id
+    # 4. Grab the verification token from DB
+    from src.models.token import VerificationToken
+    tokens_query = await db_session.execute(
+        select(VerificationToken).where(VerificationToken.user_id == uuid.UUID(user_id), VerificationToken.token_type == "email_verify")
+    )
+    tokens = tokens_query.scalars().all()
+    assert len(tokens) == 1
+    token = tokens[0].token
 
     # 5. Call GET /verify-email?token=<token>&tenant_id=<tenant_id>
     verify_resp = await client.get(
@@ -73,8 +71,11 @@ async def test_email_verification_flow(client: AsyncClient, db_session):
     await db_session.refresh(user_obj)
     assert user_obj.is_verified is True
 
-    # Verify token is deleted from Redis
-    assert await redis_client.get(verify_key) is None
+    # Verify token is deleted from DB
+    tokens_query = await db_session.execute(
+        select(VerificationToken).where(VerificationToken.user_id == uuid.UUID(user_id), VerificationToken.token_type == "email_verify")
+    )
+    assert len(tokens_query.scalars().all()) == 0
 
 
 @pytest.mark.asyncio
@@ -102,12 +103,14 @@ async def test_password_reset_flow(client: AsyncClient, db_session):
     assert forgot_resp.status_code == 200
     assert forgot_resp.json()["success"] is True
 
-    # 3. Grab reset token from Redis
-    redis_client = await init_redis()
-    keys = await redis_client.keys("password_reset:*")
-    assert len(keys) == 1
-    reset_key = keys[0]
-    token = reset_key.split(":")[1]
+    # 3. Grab reset token from DB
+    from src.models.token import VerificationToken
+    tokens_query = await db_session.execute(
+        select(VerificationToken).where(VerificationToken.user_id == uuid.UUID(user_id), VerificationToken.token_type == "password_reset")
+    )
+    tokens = tokens_query.scalars().all()
+    assert len(tokens) == 1
+    token = tokens[0].token
 
     # 4. Perform Password Reset using token
     # This checks if resolve_tenant resolves the tenant context from the POST body token
@@ -118,8 +121,11 @@ async def test_password_reset_flow(client: AsyncClient, db_session):
     assert reset_resp.status_code == 200
     assert reset_resp.json()["success"] is True
 
-    # Verify token is deleted from Redis
-    assert await redis_client.get(reset_key) is None
+    # Verify token is deleted from DB
+    tokens_query = await db_session.execute(
+        select(VerificationToken).where(VerificationToken.user_id == uuid.UUID(user_id), VerificationToken.token_type == "password_reset")
+    )
+    assert len(tokens_query.scalars().all()) == 0
 
     # 5. Try logging in with old password (should fail)
     login_old = await client.post(
@@ -192,9 +198,9 @@ async def test_2fa_email_notifications(client: AsyncClient, db_session, monkeypa
     assert confirm_resp.status_code == 200
     
     # Assert 2FA Enabled email was sent
-    assert len(sent_emails) == 1
-    assert sent_emails[0][0] == email
-    assert "включена" in sent_emails[0][1]
+    assert len(sent_emails) == 2
+    assert sent_emails[1][0] == email
+    assert "включена" in sent_emails[1][1]
     
     # 5. Regenerate backup codes (should trigger regenerate email)
     regen_resp = await client.post(
@@ -205,9 +211,9 @@ async def test_2fa_email_notifications(client: AsyncClient, db_session, monkeypa
     assert regen_resp.status_code == 200
     
     # Assert backup codes regenerated email sent
-    assert len(sent_emails) == 2
-    assert sent_emails[1][0] == email
-    assert "резервные коды" in sent_emails[1][1].lower()
+    assert len(sent_emails) == 3
+    assert sent_emails[2][0] == email
+    assert "резервные коды" in sent_emails[2][1].lower()
     
     # 6. Disable 2FA (should trigger disable email)
     disable_resp = await client.post(
@@ -219,9 +225,9 @@ async def test_2fa_email_notifications(client: AsyncClient, db_session, monkeypa
     assert disable_resp.status_code == 200
     
     # Assert 2FA Disabled email sent
-    assert len(sent_emails) == 3
-    assert sent_emails[2][0] == email
-    assert "отключена" in sent_emails[2][1]
+    assert len(sent_emails) == 4
+    assert sent_emails[3][0] == email
+    assert "отключена" in sent_emails[3][1]
 
 
 @pytest.mark.asyncio
@@ -283,8 +289,8 @@ async def test_suspicious_login_email_notification(client: AsyncClient, db_sessi
     assert login3.status_code == 200
     
     # Assert anomaly notification email was sent
-    assert len(sent_emails) == 1
-    assert sent_emails[0][0] == email
-    assert "подозрительный вход" in sent_emails[0][1]
-    assert "DE" in sent_emails[0][2]
+    assert len(sent_emails) == 2
+    assert sent_emails[1][0] == email
+    assert "подозрительный вход" in sent_emails[1][1].lower()
+    assert "DE" in sent_emails[1][2]
 
