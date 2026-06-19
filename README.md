@@ -1,4 +1,5 @@
 # 🛡️ Enterprise Auth Service
+*🇺🇸 English version | [🇷🇺 Русская версия](README.ru.md)*
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -6,50 +7,40 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)
 ![React](https://img.shields.io/badge/React-18-61DAFB.svg)
 
-**Enterprise Auth Service** — это современная, высоконагруженная и полностью защищенная система аутентификации и авторизации. Проект предоставляет готовый Identity Provider (IdP) с поддержкой самых современных стандартов безопасности: WebAuthn (Passkeys), OAuth 2.0 (социальные сети), 2FA/MFA (TOTP), управление сессиями на базе JWT и встроенную панель администратора.
+**Enterprise Auth Service** is a modern, highly scalable, and fully secure authentication and authorization system. This project provides a production-ready Identity Provider (IdP) supporting the latest security standards: WebAuthn (Passkeys), OAuth 2.0 (Social Logins), 2FA/MFA (TOTP), JWT-based session management, and a built-in admin dashboard.
 
 ---
 
-## 📑 Оглавление
-1. [Почему эта папка? (CI/CD)](#1-почему-эта-папка-cicd)
-2. [Ключевые возможности](#2-ключевые-возможности)
-3. [Архитектура сервиса](#3-архитектура-сервиса)
-4. [Технологический стек](#4-технологический-стек)
-5. [Гайд по установке (Быстрый старт)](#5-гайд-по-установке-быстрый-старт)
-6. [Структура проекта](#6-структура-проекта)
-7. [Детальное описание модулей](#7-детальное-описание-модулей)
-8. [Развертывание (Production)](#8-развертывание-production)
+## 📑 Table of Contents
+1. [Key Features](#1-key-features)
+2. [Service Architecture](#2-service-architecture)
+3. [Technology Stack](#3-technology-stack)
+4. [Installation Guide (Quick Start)](#4-installation-guide-quick-start)
+5. [Project Structure](#5-project-structure)
+6. [Detailed Module Descriptions](#6-detailed-module-descriptions)
+7. [Deployment (Production)](#7-deployment-production)
 
 ---
 
-## 1. Почему эта папка? (CI/CD)
-Папка `.github/workflows` — это стандартная директория для настройки **GitHub Actions**. В ней лежит файл конфигурации, который заставляет GitHub автоматически проверять ваш код. 
-Теперь каждый раз, когда вы делаете `git push`, серверы GitHub будут:
-- Автоматически запускать тесты бэкенда (`pytest`).
-- Автоматически проверять компиляцию фронтенда (`npm run build`).
-Это гарантия того, что в главную ветку (main) никогда не попадет сломанный код. Это абсолютный стандарт для любого Enterprise проекта.
+## 1. Key Features
+
+### 🔒 Security and Authentication
+* **WebAuthn / Passkeys:** Passwordless login via biometrics (FaceID, TouchID, Windows Hello, YubiKey).
+* **OAuth 2.0:** Instant login via Discord, Apple, Facebook, Twitter, Amazon, Google, GitHub.
+* **Two-Factor Authentication (2FA/MFA):** Mandatory verification via Google Authenticator / Authy (TOTP codes).
+* **JWT & Refresh Tokens:** High-performance session management. Refresh tokens are stored in secure HttpOnly cookies (XSS protection).
+* **Email Verification & Password Reset:** Full account recovery flow via SMTP with temporary JWT tokens.
+* **Rate Limiting & Anti-Bruteforce:** Built-in DDoS and password bruteforce protection based on SlowAPI.
+* **RBAC (Role-Based Access Control):** Hierarchical role system (User, Moderator, Admin) and permission checking.
+
+### 🎨 Premium Interface (UI/UX)
+* **Glassmorphism Design:** Ultramodern interface with frosted glass effects and dynamic gradients.
+* **Framer Motion:** Smooth appearance animations, page transitions, and hover effects.
+* **Toast Notification System:** Global animated pop-ups for errors and success messages.
 
 ---
 
-## 2. Ключевые возможности
-
-### 🔒 Безопасность и Аутентификация
-* **WebAuthn / Passkeys:** Беспарольный вход через биометрию (FaceID, TouchID, Windows Hello, YubiKey).
-* **OAuth 2.0:** Мгновенный вход через Discord, Apple, Facebook, Twitter, Amazon, Google, GitHub.
-* **Двухфакторная аутентификация (2FA/MFA):** Обязательное подтверждение через Google Authenticator / Authy (генерация TOTP-кодов).
-* **JWT & Refresh Tokens:** Высокопроизводительное управление сессиями. Refresh токены хранятся в защищенных HttpOnly куках (защита от XSS).
-* **Сброс и верификация Email:** Полноценный флоу восстановления доступа через SMTP с временными JWT токенами.
-* **Rate Limiting & Anti-Bruteforce:** Встроенная защита от DDoS и перебора паролей на основе библиотеки SlowAPI.
-* **RBAC (Role-Based Access Control):** Иерархическая система ролей (User, Moderator, Admin) и проверка прав (PermissionChecker).
-
-### 🎨 Premium Интерфейс (UI/UX)
-* **Glassmorphism Design:** Ультрасовременный интерфейс с эффектом матового стекла и живыми градиентами.
-* **Framer Motion:** Плавные анимации появления, переходов между страницами и ховер-эффекты.
-* **Система Toast уведомлений:** Глобальные анимированные всплывающие окна для ошибок и успехов.
-
----
-
-## 3. Архитектура сервиса
+## 2. Service Architecture
 
 ```mermaid
 graph TD
@@ -74,139 +65,139 @@ graph TD
     FastAPI --> SMTP[SMTP Server / Email Sender]
 ```
 
-1. **API Gateway (Nginx):** Раздает статику React и проксирует запросы `/api/*` на бэкенд, решая проблемы с CORS в production.
-2. **FastAPI (Backend):** Ядро бизнес-логики. Асинхронно обрабатывает запросы, генерирует токены, общается с БД и Redis.
-3. **Redis:** Хранит временные ключи `state` для OAuth (предотвращение CSRF атак) и challenge-строки для WebAuthn.
-4. **PostgreSQL:** Надежное хранение пользователей, хэшей паролей (Bcrypt) и сессий.
+1. **API Gateway (Nginx):** Serves React static files and proxies `/api/*` requests to the backend, solving CORS issues in production.
+2. **FastAPI (Backend):** Core business logic. Processes requests asynchronously, generates tokens, and communicates with DB and Redis.
+3. **Redis:** Stores temporary `state` keys for OAuth (CSRF protection) and challenge strings for WebAuthn.
+4. **PostgreSQL:** Reliable storage for users, password hashes (Bcrypt), and sessions.
 
 ---
 
-## 4. Технологический стек
+## 3. Technology Stack
 
 ### Backend
-- **Python 3.12** + **FastAPI**: Невероятно быстрый современный фреймворк.
-- **SQLAlchemy (Async)** + **Alembic**: ORM для управления базой данных и миграциями.
-- **Pydantic V2**: Валидация входных данных.
-- **WebAuthn**: Библиотека для биометрической авторизации.
-- **PyJWT & Passlib**: Хеширование и токены.
-- **SlowAPI**: Ограничение количества запросов.
+- **Python 3.12** + **FastAPI**: Incredibly fast modern framework.
+- **SQLAlchemy (Async)** + **Alembic**: ORM for database management and migrations.
+- **Pydantic V2**: Input data validation.
+- **WebAuthn**: Biometric authorization library.
+- **PyJWT & Passlib**: Hashing and tokens.
+- **SlowAPI**: Rate limiting.
 
 ### Frontend
-- **React 18** + **Vite**: Сверхбыстрая сборка.
-- **TypeScript**: Строгая типизация всего кода.
-- **TailwindCSS** + **Framer Motion**: Стилизация и анимации.
-- **Recharts**: Интерактивные графики для панели администратора.
-- **SimpleWebAuthn**: Общение с аппаратными ключами напрямую из браузера.
+- **React 18** + **Vite**: Ultra-fast build.
+- **TypeScript**: Strict typing across the entire codebase.
+- **TailwindCSS** + **Framer Motion**: Styling and animations.
+- **Recharts**: Interactive charts for the admin panel.
+- **SimpleWebAuthn**: Direct communication with hardware keys from the browser.
 
 ---
 
-## 5. Гайд по установке (Быстрый старт)
+## 4. Installation Guide (Quick Start)
 
-Для локального запуска вам понадобится только **Docker** и **Docker Compose**.
+You only need **Docker** and **Docker Compose** for local setup.
 
-### Шаг 1: Клонирование и настройка
+### Step 1: Clone and Configure
 ```bash
 git clone https://github.com/PashKa-tech/auth-service.git
 cd auth-service
 ```
 
-### Шаг 2: Переменные окружения
-Скопируйте пример конфига в рабочий:
+### Step 2: Environment Variables
+Copy the example config to your working environment:
 ```bash
 cp backend/.env.example backend/.env
 cp frontend/.env.local frontend/.env
 ```
-В файле `backend/.env` вы можете указать ключи для OAuth (Discord, Apple и т.д.) и SMTP-сервер для отправки писем.
+In `backend/.env`, you can specify keys for OAuth (Discord, Apple, etc.) and an SMTP server for sending emails.
 
-### Шаг 3: Запуск через Makefile
-Если у вас есть утилита `make`, просто введите:
+### Step 3: Launch via Makefile
+If you have `make` installed, simply type:
 ```bash
 make up
 ```
-Либо используйте Docker напрямую:
+Alternatively, use Docker directly:
 ```bash
 docker-compose up -d --build
 ```
 
-### Шаг 4: Накат миграций БД
-Чтобы создать таблицы в свежей базе данных, выполните:
+### Step 4: Run Database Migrations
+To create tables in a fresh database, run:
 ```bash
 make migrate
-# или: docker-compose exec backend alembic upgrade head
+# or: docker-compose exec backend alembic upgrade head
 ```
 
-### Шаг 5: Использование
-- **Frontend (UI):** Откройте `http://localhost` (или `http://localhost:3000` без Docker)
-- **Backend API Docs:** Откройте `http://localhost:8000/docs` (Swagger UI)
+### Step 5: Usage
+- **Frontend (UI):** Open `http://localhost` (or `http://localhost:3000` without Docker)
+- **Backend API Docs:** Open `http://localhost:8000/docs` (Swagger UI)
 
 ---
 
-## 6. Структура проекта
+## 5. Project Structure
 
 ```text
 auth-service/
-├── .github/workflows/    # CI/CD pipelines (Автоматическое тестирование)
+├── .github/workflows/    # CI/CD pipelines (Automated testing)
 ├── backend/              # FastAPI Application
-│   ├── alembic/          # Миграции базы данных
+│   ├── alembic/          # Database migrations
 │   ├── src/
-│   │   ├── api/          # Роуты (Endpoints)
+│   │   ├── api/          # Routes (Endpoints)
 │   │   ├── core/         # RBAC, Exceptions, Security
-│   │   ├── models/       # SQLAlchemy схемы БД
-│   │   ├── repositories/ # Слой доступа к данным (CRUD)
-│   │   ├── services/     # Бизнес-логика (Auth, Email, WebAuthn)
-│   │   └── templates/    # Jinja2 HTML шаблоны писем
-│   ├── Dockerfile        # Контейнеризация бэкенда
-│   └── main.py           # Точка входа, Middleware, SlowAPI
+│   │   ├── models/       # SQLAlchemy DB schemas
+│   │   ├── repositories/ # Data access layer (CRUD)
+│   │   ├── services/     # Business logic (Auth, Email, WebAuthn)
+│   │   └── templates/    # Jinja2 HTML email templates
+│   ├── Dockerfile        # Backend containerization
+│   └── main.py           # Entry point, Middleware, SlowAPI
 ├── frontend/             # React SPA Application
 │   ├── src/
-│   │   ├── components/   # UI компоненты (Toasts, Layout)
-│   │   ├── pages/        # Экраны (Login, Profile, Admin)
+│   │   ├── components/   # UI components (Toasts, Layout)
+│   │   ├── pages/        # Screens (Login, Profile, Admin)
 │   │   └── services/     # API Client (Axios)
-│   ├── index.css         # Глобальные стили (Glassmorphism)
-│   ├── Dockerfile        # Контейнеризация фронтенда (Multi-stage)
-│   └── nginx.conf        # Настройка веб-сервера
-├── docker-compose.yml    # Оркестрация контейнеров
-└── Makefile              # Удобные команды для разработчика
+│   ├── index.css         # Global styles (Glassmorphism)
+│   ├── Dockerfile        # Frontend containerization (Multi-stage)
+│   └── nginx.conf        # Web server configuration
+├── docker-compose.yml    # Container orchestration
+└── Makefile              # Handy commands for developers
 ```
 
 ---
 
-## 7. Детальное описание модулей
+## 6. Detailed Module Descriptions
 
-### 🔑 Продвинутый OAuth 2.0
-Модуль OAuth (в `services/oauth.py`) построен так, чтобы легко добавлять новых провайдеров. Поддерживается:
-- **PKCE & State Validation**: Предотвращает CSRF атаки и перехват кода. Ключ `state` временно сохраняется в Redis с TTL в 5 минут.
-- **Dynamic Redirect URIs**: Роутинг автоматически определяет базовый домен, гарантируя, что коллбеки всегда вернутся на правильный адрес (например, `api.mydomain.com/api/v1/auth/oauth/discord/callback`).
+### 🔑 Advanced OAuth 2.0
+The OAuth module (in `services/oauth.py`) is built to easily add new providers. It supports:
+- **PKCE & State Validation**: Prevents CSRF attacks and code interception. The `state` key is temporarily saved in Redis with a 5-minute TTL.
+- **Dynamic Redirect URIs**: Routing automatically determines the base domain, ensuring callbacks always return to the correct address.
 
 ### 🛡️ WebAuthn (Passkeys)
-Беспарольное будущее здесь. Флоу разбит на два этапа:
-1. `GET /begin`: Сервер генерирует случайный криптографический `challenge` и сохраняет его в Redis.
-2. Клиентский `SimpleWebAuthn` подписывает challenge приватным ключом устройства (TouchID).
-3. `POST /complete`: Сервер проверяет подпись публичным ключом и, в случае успеха, выдает JWT токен.
+The passwordless future is here. The flow is split into two stages:
+1. `GET /begin`: The server generates a random cryptographic `challenge` and saves it in Redis.
+2. The client-side `SimpleWebAuthn` signs the challenge with the device's private key (e.g., TouchID).
+3. `POST /complete`: The server verifies the signature with the public key and issues a JWT token upon success.
 
-### ✉️ Email-верификация и сброс паролей
-Используется асинхронный `aiosmtplib` и рендеринг HTML-писем через `Jinja2`.
-- При регистрации генерируется UUID-токен, записывается в БД (таблица `verification_tokens`) со сроком жизни 24 часа.
-- Пользователь получает красивое письмо. При переходе по ссылке токен валидируется и удаляется.
-- Сброс пароля работает по аналогичной схеме, но с 1-часовым сроком жизни.
+### ✉️ Email Verification and Password Reset
+Utilizes asynchronous `aiosmtplib` and HTML email rendering via `Jinja2`.
+- A UUID token is generated upon registration and saved to the DB (`verification_tokens` table) with a 24-hour lifespan.
+- The user receives a beautiful email. Clicking the link validates and deletes the token.
+- Password resets work similarly, but with a 1-hour lifespan.
 
 ---
 
-## 8. Развертывание (Production)
+## 7. Deployment (Production)
 
-Для развертывания на боевом сервере (Ubuntu/Debian) выполните следующие шаги:
+To deploy on a production server (Ubuntu/Debian), follow these steps:
 
-1. **Установите Docker и Docker Compose.**
-2. Склонируйте репозиторий на сервер.
-3. Отредактируйте `backend/.env` и укажите боевые переменные (настоящий SMTP, `DOMAIN=yourdomain.com`, надежные пароли для БД).
-4. Настройте **Reverse Proxy** (Nginx/Traefik) поверх вашего сервера для обработки SSL/HTTPS. *OAuth и WebAuthn требуют обязательного HTTPS в production!*
-5. Запустите проект:
+1. **Install Docker and Docker Compose.**
+2. Clone the repository to your server.
+3. Edit `backend/.env` and set production variables (real SMTP, `DOMAIN=yourdomain.com`, strong DB passwords).
+4. Configure a **Reverse Proxy** (Nginx/Traefik) on top of your server to handle SSL/HTTPS. *OAuth and WebAuthn require HTTPS in production!*
+5. Start the project:
    ```bash
    docker-compose -f docker-compose.yml up -d --build
    ```
-6. Выполните миграции:
+6. Run migrations:
    ```bash
    docker-compose exec backend alembic upgrade head
    ```
 
-🎉 **Поздравляем! Ваш Enterprise Auth Service запущен и готов к обработке тысяч запросов в секунду.**
+🎉 **Congratulations! Your Enterprise Auth Service is running and ready to handle thousands of requests per second.**
