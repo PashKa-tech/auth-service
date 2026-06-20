@@ -72,9 +72,10 @@ OmniAuth is an open-source identity and access management (IAM) solution designe
    docker-compose up -d
    ```
 
-Your Auth Service is now running! 
-- **Admin Dashboard**: `http://localhost:3000`
-- **API Documentation**: `http://localhost:8000/docs`
+Your Auth Service is now running via Traefik! 
+- **Frontend Dashboard**: `http://localhost` or `http://localhost:8080`
+- **Backend API**: `http://api.localhost` or `http://localhost:8000/docs`
+- **Grafana Metrics**: `http://grafana.localhost` (admin/admin)
 
 ---
 

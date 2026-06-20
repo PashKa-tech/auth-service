@@ -144,8 +144,10 @@ make migrate
 ```
 
 ### Шаг 5: Использование
-- **Frontend (UI):** Откройте `http://localhost`
-- **Backend API Docs:** Откройте `http://localhost:8000/docs` (Интерактивный Swagger UI)
+Ваш Auth Service теперь запущен через Traefik! 
+- **Frontend Dashboard**: `http://localhost` или `http://localhost:8080`
+- **Backend API Docs**: `http://api.localhost` или `http://localhost:8000/docs` (Интерактивный Swagger UI)
+- **Grafana Мониторинг**: `http://grafana.localhost` (логин/пароль: admin/admin)
 
 ---
 
