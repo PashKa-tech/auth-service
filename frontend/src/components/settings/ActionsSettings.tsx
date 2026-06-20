@@ -1,9 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Plus, Save, Trash2, Zap, AlertCircle, CheckCircle } from 'lucide-react';
+import { Plus, Save, Zap, AlertCircle, CheckCircle } from 'lucide-react';
 import { api } from '../../services/api';
 
+interface Action {
+  id: string;
+  name: string;
+  trigger: string;
+  is_active: boolean;
+  code: string;
+}
+
 export const ActionsSettings: React.FC = () => {
-  const [actions, setActions] = useState<any[]>([]);
+  const [actions, setActions] = useState<Action[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -36,8 +44,8 @@ function onExecutePostLogin(event, api) {
       if (res.success) {
         setActions(res.data);
       }
-    } catch (err: any) {
-      setError('Failed to fetch actions: ' + err.message);
+    } catch (err: unknown) {
+      setError('Failed to fetch actions: ' + (err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -57,7 +65,7 @@ function onExecutePostLogin(event, api) {
     setSuccess('');
   };
 
-  const handleEdit = (action: any) => {
+  const handleEdit = (action: Action) => {
     setEditingId(action.id);
     setName(action.name);
     setTrigger(action.trigger);
@@ -84,8 +92,8 @@ function onExecutePostLogin(event, api) {
       }
       setEditingId(null);
       fetchActions();
-    } catch (err: any) {
-      setError(err.message || 'Failed to save action');
+    } catch (err: unknown) {
+      setError((err as Error).message || 'Failed to save action');
     }
   };
 
@@ -96,8 +104,8 @@ function onExecutePostLogin(event, api) {
       await api.delete(`/api/v1/auth/organizations/actions/${id}`);
       setSuccess('Action deleted.');
       fetchActions();
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete action');
+    } catch (err: unknown) {
+      setError((err as Error).message || 'Failed to delete action');
     }
   };
 

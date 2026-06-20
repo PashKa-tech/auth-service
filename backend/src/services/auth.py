@@ -78,7 +78,7 @@ class AuthService:
         from src.models.tenant import Tenant
         import httpx
         
-        res = await self.user_repo.session.execute(select(Tenant.pre_login_webhook_url).where(Tenant.id == self.tenant_id))
+        res = await self.user_repo.db.execute(select(Tenant.pre_login_webhook_url).where(Tenant.id == self.tenant_id))
         webhook_url = res.scalar_one_or_none()
         
         custom_claims = None
@@ -105,7 +105,7 @@ class AuthService:
         # Execute Post-Login JS Actions
         try:
             from src.services.actions import ActionsService
-            actions_service = ActionsService(self.user_repo.session)
+            actions_service = ActionsService(self.user_repo.db)
             request_info = {"ip": session.ip_address, "userAgent": session.user_agent}
             action_result = await actions_service.execute_post_login_actions(self.tenant_id, user, request_info)
             if action_result:
@@ -266,7 +266,7 @@ class AuthService:
                 user.failed_login_attempts += 1
                 if user.failed_login_attempts >= 5:
                     user.locked_until = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=15)
-                await self.user_repo.session.commit()
+                await self.user_repo.db.commit()
                 
             LOGIN_COUNTER.labels(status="failed", tenant_id=str(self.tenant_id)).inc()
             self.audit_repo.create_background(self.background_tasks,
@@ -295,7 +295,7 @@ class AuthService:
         if user.failed_login_attempts > 0:
             user.failed_login_attempts = 0
             user.locked_until = None
-            await self.user_repo.session.commit()
+            await self.user_repo.db.commit()
 
         # Check if 2FA is enabled
         if user.is_two_factor_enabled:

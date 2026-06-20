@@ -1,9 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Key, Plus, Trash2, Copy, CheckCircle, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, CheckCircle, AlertCircle } from 'lucide-react';
 import { api } from '../../services/api';
 
+interface OAuthApp {
+  id: string;
+  name: string;
+  client_id: string;
+  client_type: string;
+}
+
 export const OAuthAppsList: React.FC = () => {
-  const [apps, setApps] = useState<any[]>([]);
+  const [apps, setApps] = useState<OAuthApp[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
@@ -19,8 +26,8 @@ export const OAuthAppsList: React.FC = () => {
       setLoading(true);
       const resp = await api.get('/api/v1/organizations/oauth-apps');
       setApps(resp.data || []);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch OAuth apps');
+    } catch (err: unknown) {
+      setError((err as Error).message || 'Failed to fetch OAuth apps');
     } finally {
       setLoading(false);
     }
@@ -46,8 +53,8 @@ export const OAuthAppsList: React.FC = () => {
       setNewAppRedirects('');
       setShowCreate(false);
       fetchApps();
-    } catch (err: any) {
-      setError(err.message || 'Failed to create app');
+    } catch (err: unknown) {
+      setError((err as Error).message || 'Failed to create app');
     }
   };
 
@@ -56,8 +63,8 @@ export const OAuthAppsList: React.FC = () => {
     try {
       await api.delete(`/api/v1/organizations/oauth-apps/${id}`);
       fetchApps();
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete app');
+    } catch (err: unknown) {
+      setError((err as Error).message || 'Failed to delete app');
     }
   };
 
