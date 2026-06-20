@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { LogIn, UserPlus, Settings, CheckCircle, AlertCircle, Key } from 'lucide-react';
+import { LogIn, UserPlus, Settings, CheckCircle, AlertCircle, Key, Mail } from 'lucide-react';
 import { api, getApiKey, setApiKey, API_BASE_URL } from '../services/api';
 import { motion } from 'framer-motion';
 import { CaptchaWidget, CaptchaResult } from '../components/CaptchaWidget';
@@ -27,6 +27,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   // Status/Error state
   const [loading, setLoading] = useState(false);
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
+  const [isMagicLinkLoading, setIsMagicLinkLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
@@ -158,6 +159,25 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       setError(err.message || 'Passkey login failed');
     } finally {
       setIsPasskeyLoading(false);
+    }
+  };
+
+  const handleMagicLinkLogin = async () => {
+    if (!email) {
+      setError('Enter your email to sign in with a Magic Link');
+      return;
+    }
+    setError('');
+    setInfo('');
+    setIsMagicLinkLoading(true);
+
+    try {
+      await api.post('/api/v1/auth/passwordless/start', { email });
+      setInfo('A magic link has been sent to your email. Please check your inbox.');
+    } catch (err: any) {
+      setError(err.message || 'Failed to send magic link');
+    } finally {
+      setIsMagicLinkLoading(false);
     }
   };
 
@@ -345,15 +365,27 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               </button>
 
               {!isRegister && (
-                <button 
-                  type="button" 
-                  onClick={handlePasskeyLogin} 
-                  className="btn btn-secondary" 
-                  style={{ width: '100%', marginTop: '0.75rem' }} 
-                  disabled={loading || isPasskeyLoading}
-                >
-                  <Key size={18} /> {isPasskeyLoading ? 'Waiting for device...' : 'Sign in with Passkey'}
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.75rem' }}>
+                  <button 
+                    type="button" 
+                    onClick={handlePasskeyLogin} 
+                    className="btn btn-secondary" 
+                    style={{ width: '100%' }} 
+                    disabled={loading || isPasskeyLoading || isMagicLinkLoading}
+                  >
+                    <Key size={18} /> {isPasskeyLoading ? 'Waiting for device...' : 'Sign in with Passkey'}
+                  </button>
+                  
+                  <button 
+                    type="button" 
+                    onClick={handleMagicLinkLogin} 
+                    className="btn btn-secondary" 
+                    style={{ width: '100%' }} 
+                    disabled={loading || isPasskeyLoading || isMagicLinkLoading}
+                  >
+                    <Mail size={18} /> {isMagicLinkLoading ? 'Sending link...' : 'Sign in with Magic Link'}
+                  </button>
+                </div>
               )}
             </form>
 

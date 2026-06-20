@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { api } from './services/api';
 import { Layout } from './components/Layout';
+import { VerifyMagicLink } from './pages/VerifyMagicLink';
 
 const Login = lazy(() => import('./pages/Login').then(m => ({ default: m.Login })));
 const Profile = lazy(() => import('./pages/Profile').then(m => ({ default: m.Profile })));
@@ -146,6 +147,10 @@ export const App: React.FC = () => {
           <Route
             path="/reset-password"
             element={<ResetPassword />}
+          />
+          <Route
+            path="/verify-magic-link"
+            element={<VerifyMagicLink onLoginSuccess={handleLoginSuccess} />}
           />
           <Route
             path="/verify-email"
