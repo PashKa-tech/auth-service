@@ -2,8 +2,16 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ShieldCheck, Plus, Trash2, AlertCircle, Users } from 'lucide-react';
 import { api } from '../../services/api';
 
+interface Role {
+  id: string;
+  name: string;
+  description: string;
+  permissions: string[];
+  is_system: boolean;
+}
+
 export const RBACSettings: React.FC = () => {
-  const [roles, setRoles] = useState<any[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
@@ -19,8 +27,8 @@ export const RBACSettings: React.FC = () => {
       setLoading(true);
       const resp = await api.get('/api/v1/rbac/roles');
       setRoles(resp.data || []);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch roles');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch roles');
     } finally {
       setLoading(false);
     }
@@ -43,8 +51,8 @@ export const RBACSettings: React.FC = () => {
       setFormData({ name: '', description: '', permissions: '' });
       setShowCreate(false);
       fetchRoles();
-    } catch (err: any) {
-      setError(err.message || 'Failed to create role');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create role');
     }
   };
 
@@ -53,8 +61,8 @@ export const RBACSettings: React.FC = () => {
     try {
       await api.delete(`/api/v1/rbac/roles/${id}`);
       fetchRoles();
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete role');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete role');
     }
   };
 

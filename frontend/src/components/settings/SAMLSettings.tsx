@@ -2,8 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Network, Plus, Trash2, AlertCircle } from 'lucide-react';
 import { api } from '../../services/api';
 
+interface SAMLConnection {
+  id: string;
+  name: string;
+  idp_entity_id: string;
+  is_active: boolean;
+}
+
 export const SAMLSettings: React.FC = () => {
-  const [connections, setConnections] = useState<any[]>([]);
+  const [connections, setConnections] = useState<SAMLConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
@@ -22,8 +29,8 @@ export const SAMLSettings: React.FC = () => {
       setLoading(true);
       const resp = await api.get('/api/v1/organizations/saml-connections');
       setConnections(resp.data || []);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch SAML connections');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch SAML connections');
     } finally {
       setLoading(false);
     }
@@ -48,8 +55,8 @@ export const SAMLSettings: React.FC = () => {
       });
       setShowCreate(false);
       fetchConnections();
-    } catch (err: any) {
-      setError(err.message || 'Failed to create SAML connection');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create SAML connection');
     }
   };
 
@@ -58,8 +65,8 @@ export const SAMLSettings: React.FC = () => {
     try {
       await api.delete(`/api/v1/organizations/saml-connections/${id}`);
       fetchConnections();
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete connection');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete connection');
     }
   };
 
