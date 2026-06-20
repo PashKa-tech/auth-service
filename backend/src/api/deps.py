@@ -366,7 +366,7 @@ async def get_current_user(
                 detail="Session has been revoked or expired"
             )
         # Cache for 60 seconds
-        await redis_client.setex(cache_key, 60, "1")
+        await redis_client.set(cache_key, "1", ex=60)
 
     # Fetch user
     user = await user_repo.get_by_id(user_uuid)

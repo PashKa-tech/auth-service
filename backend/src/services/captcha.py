@@ -50,7 +50,7 @@ class CaptchaService:
         captcha_id = str(uuid.uuid4())
         # Store answer with 5 min TTL
         if redis_module.redis_client:
-            await redis_module.redis_client.setex(f"captcha:{captcha_id}", 300, text)
+            await redis_module.redis_client.set(f"captcha:{captcha_id}", text, ex=300)
             
         return {"captcha_id": captcha_id, "image_data": svg_b64}
 

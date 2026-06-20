@@ -43,7 +43,7 @@ class WebAuthnService:
     async def _save_challenge(self, key: str, challenge: bytes) -> None:
         redis = await init_redis()
         # WebAuthn challenges are typically valid for a few minutes (5 mins)
-        await redis.setex(f"webauthn_challenge:{key}", 300, challenge)
+        await redis.set(f"webauthn_challenge:{key}", challenge, ex=300)
 
     async def _get_challenge(self, key: str) -> bytes | None:
         redis = await init_redis()
