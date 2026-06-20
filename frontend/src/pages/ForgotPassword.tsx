@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
+import { CaptchaWidget, CaptchaResult } from '../components/CaptchaWidget';
 
 export const ForgotPassword = () => {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+  const [captchaResult, setCaptchaResult] = useState<CaptchaResult | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -15,7 +17,11 @@ export const ForgotPassword = () => {
     setSuccess(false);
 
     try {
-      await api.post('/api/v1/auth/forgot-password', { email });
+      await api.post('/api/v1/auth/forgot-password', { 
+        email,
+        captcha_token: captchaResult?.token,
+        captcha_id: captchaResult?.id
+      });
       setSuccess(true);
       setEmail('');
     } catch (err: any) {
@@ -67,6 +73,8 @@ export const ForgotPassword = () => {
               required
             />
           </div>
+
+          <CaptchaWidget onVerify={setCaptchaResult} />
 
           <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} disabled={loading}>
             {loading ? 'Sending...' : 'Send Reset Link'}

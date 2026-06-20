@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
+import { CaptchaWidget, CaptchaResult } from '../components/CaptchaWidget';
 
 export const ResetPassword = () => {
   const [searchParams] = useSearchParams();
@@ -11,6 +12,7 @@ export const ResetPassword = () => {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+  const [captchaResult, setCaptchaResult] = useState<CaptchaResult | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -29,7 +31,12 @@ export const ResetPassword = () => {
     setSuccess(false);
 
     try {
-      await api.post('/api/v1/auth/reset-password', { token, new_password: newPassword });
+      await api.post('/api/v1/auth/reset-password', { 
+        token, 
+        new_password: newPassword,
+        captcha_token: captchaResult?.token,
+        captcha_id: captchaResult?.id
+      });
       setSuccess(true);
       setNewPassword('');
     } catch (err: any) {
@@ -87,6 +94,8 @@ export const ResetPassword = () => {
                   disabled={!token || loading}
                 />
               </div>
+
+              <CaptchaWidget onVerify={setCaptchaResult} />
 
               <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} disabled={!token || loading}>
                 {loading ? 'Saving...' : 'Save Password'}

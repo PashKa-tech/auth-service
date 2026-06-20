@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { LogIn, UserPlus, Settings, CheckCircle, AlertCircle, Key } from 'lucide-react';
 import { api, getApiKey, setApiKey, API_BASE_URL } from '../services/api';
 import { motion } from 'framer-motion';
+import { CaptchaWidget, CaptchaResult } from '../components/CaptchaWidget';
 
 interface LoginProps {
   onLoginSuccess: (user: any) => void;
@@ -17,6 +18,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [registrationSuccess, setRegistrationSuccess] = useState(false);
+  const [captchaResult, setCaptchaResult] = useState<CaptchaResult | null>(null);
   
   // Developer/Tenant Settings state
   const [apiKey, setApiKeyInput] = useState(getApiKey());
@@ -57,11 +59,21 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     try {
       if (isRegister) {
         // Registration flow
-        await api.post('/api/v1/auth/register', { email, password });
+        await api.post('/api/v1/auth/register', { 
+          email, 
+          password,
+          captcha_token: captchaResult?.token,
+          captcha_id: captchaResult?.id
+        });
         setRegistrationSuccess(true);
       } else {
         // Login flow
-        const resp = await api.post('/api/v1/auth/login', { email, password });
+        const resp = await api.post('/api/v1/auth/login', { 
+          email, 
+          password,
+          captcha_token: captchaResult?.token,
+          captcha_id: captchaResult?.id
+        });
         
         if (resp.data.requires_2fa) {
           setRequires2fa(true);
@@ -324,6 +336,8 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   required
                 />
               </div>
+
+              <CaptchaWidget onVerify={setCaptchaResult} />
 
               <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '0.5rem' }} disabled={loading}>
                 {isRegister ? <UserPlus size={18} /> : <LogIn size={18} />}

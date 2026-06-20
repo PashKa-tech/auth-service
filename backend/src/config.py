@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     BACKUP_CODES_COUNT: int = 10
     MFA_TOKEN_EXPIRE_MINUTES: int = 5
     
+    # Captcha Configuration
+    CAPTCHA_TYPE: Literal["none", "custom", "google"] = "none"
+    GOOGLE_RECAPTCHA_SECRET: str | None = None
+    GOOGLE_RECAPTCHA_SITE_KEY: str | None = None
+    
     def get_redirect_uri(self, provider: str) -> str:
         return f"{self.API_BASE_URL}/api/v1/auth/oauth/{provider}/callback"
 

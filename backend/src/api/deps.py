@@ -257,6 +257,11 @@ async def get_verification_token_repository(
 ) -> VerificationTokenRepository:
     return VerificationTokenRepository(db, tenant_id)
 
+from src.services.captcha import CaptchaService
+
+def get_captcha_service() -> CaptchaService:
+    return CaptchaService()
+
 async def get_auth_service(
     background_tasks: BackgroundTasks,
     user_repo: UserRepository = Depends(get_user_repository),

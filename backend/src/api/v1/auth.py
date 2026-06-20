@@ -11,9 +11,11 @@ from src.api.deps import (
     RoleChecker,
     get_two_factor_service,
     get_webauthn_service,
-    requires_fresh_auth
+    requires_fresh_auth,
+    get_captcha_service
 )
 from src.services.auth import AuthService
+from src.services.captcha import CaptchaService
 from src.services.oauth import OAuthService
 from src.services.two_factor import TwoFactorService
 from src.models.user import User
@@ -26,18 +28,22 @@ router = APIRouter()
 
 # --- Schemas ---
 
-class UserRegisterRequest(BaseModel):
+class CaptchaBase(BaseModel):
+    captcha_token: str | None = None
+    captcha_id: str | None = None
+
+class UserRegisterRequest(CaptchaBase):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
 
-class UserLoginRequest(BaseModel):
+class UserLoginRequest(CaptchaBase):
     email: EmailStr
     password: str
 
-class ForgotPasswordRequest(BaseModel):
+class ForgotPasswordRequest(CaptchaBase):
     email: EmailStr
 
-class ResetPasswordRequest(BaseModel):
+class ResetPasswordRequest(CaptchaBase):
     token: str
     new_password: str = Field(..., min_length=8, max_length=128)
 
@@ -117,13 +123,29 @@ def clear_auth_cookies(response: Response):
 
 # --- Routes ---
 
+@router.get("/config", response_model=UnifiedResponse)
+async def get_auth_config():
+    return UnifiedResponse(success=True, data={
+        "captcha_type": settings.CAPTCHA_TYPE,
+        "recaptcha_site_key": settings.GOOGLE_RECAPTCHA_SITE_KEY
+    })
+
+@router.get("/captcha", response_model=UnifiedResponse)
+async def get_custom_captcha(captcha_service: CaptchaService = Depends(get_captcha_service)):
+    if settings.CAPTCHA_TYPE != "custom":
+        raise HTTPException(status_code=400, detail="Custom captcha is not enabled")
+    data = await captcha_service.generate_custom_captcha()
+    return UnifiedResponse(success=True, data=data)
+
 @router.post("/register", response_model=UnifiedResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(RateLimiter("register_ip", 5))])
 async def register(
     request: Request,
     body: UserRegisterRequest,
     auth_service: AuthService = Depends(get_auth_service),
-    tenant_id: uuid.UUID = Depends(resolve_tenant)
+    tenant_id: uuid.UUID = Depends(resolve_tenant),
+    captcha_service: CaptchaService = Depends(get_captcha_service)
 ):
+    await captcha_service.verify_captcha(body.captcha_token, body.captcha_id, get_client_ip(request))
     # Rate Limit checking: Global Tenant Limit 
     global_limit_key = f"tenant_rpm:{tenant_id}"
     
@@ -145,8 +167,10 @@ async def login(
     response: Response,
     body: UserLoginRequest,
     auth_service: AuthService = Depends(get_auth_service),
-    tenant_id: uuid.UUID = Depends(resolve_tenant)
+    tenant_id: uuid.UUID = Depends(resolve_tenant),
+    captcha_service: CaptchaService = Depends(get_captcha_service)
 ):
+    await captcha_service.verify_captcha(body.captcha_token, body.captcha_id, get_client_ip(request))
     # Rate Limit checking: Global Tenant
     global_limit_key = f"tenant_rpm:{tenant_id}"
     
@@ -731,8 +755,10 @@ async def forgot_password(
     request: Request,
     body: ForgotPasswordRequest,
     auth_service: AuthService = Depends(get_auth_service),
-    tenant_id: uuid.UUID = Depends(resolve_tenant)
+    tenant_id: uuid.UUID = Depends(resolve_tenant),
+    captcha_service: CaptchaService = Depends(get_captcha_service)
 ):
+    await captcha_service.verify_captcha(body.captcha_token, body.captcha_id, get_client_ip(request))
     """Initiate password recovery."""
     ip_limit_key = f"forgot_password_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
     if await is_rate_limited(ip_limit_key, 3):
@@ -750,9 +776,11 @@ async def reset_password(
     request: Request,
     body: ResetPasswordRequest,
     auth_service: AuthService = Depends(get_auth_service),
-    tenant_id: uuid.UUID = Depends(resolve_tenant)
+    tenant_id: uuid.UUID = Depends(resolve_tenant),
+    captcha_service: CaptchaService = Depends(get_captcha_service)
 ):
     """Perform password reset using token."""
+    await captcha_service.verify_captcha(body.captcha_token, body.captcha_id, get_client_ip(request))
     ip_limit_key = f"reset_password_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
     if await is_rate_limited(ip_limit_key, 5):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many password reset attempts. Try again later.")
