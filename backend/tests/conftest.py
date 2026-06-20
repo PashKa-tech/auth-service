@@ -110,6 +110,14 @@ async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
 
 app.dependency_overrides[get_db] = override_get_db
 
+@pytest.fixture(autouse=True)
+def mock_pwned_password(monkeypatch):
+    """Automatically mock check_pwned_password to always return False during tests."""
+    from src.core import security
+    async def mock_check(*args, **kwargs):
+        return False
+    monkeypatch.setattr(security, "check_pwned_password", mock_check)
+
 @pytest.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
     """Provide an HTTPX async client to test endpoints."""

@@ -210,10 +210,11 @@ async def accept_invite(
         return UnifiedResponse(success=True, message="You are already a member of this organization. You can now login.")
 
     # Create the user
+    password_hash = await hash_password(req.password)
     new_user = DBUser(
         tenant_id=invite.tenant_id,
         email=invite.email,
-        password_hash=hash_password(req.password),
+        password_hash=password_hash,
         role=invite.role,
         is_verified=True # Email is verified because they received the invite
     )

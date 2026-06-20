@@ -46,13 +46,14 @@ def test_fuzz_hash_and_verify_password(password):
     Argon2 has internal limits, but the Python bindings should raise appropriate errors
     or handle it gracefully. We just ensure no unhandled unexpected exceptions occur.
     """
+    import asyncio
     try:
         # Some extremely long passwords might raise exceptions in argon2, 
         # but typically standard texts work fine.
-        hashed = hash_password(password)
-        assert verify_password(password, hashed) is True
+        hashed = asyncio.run(hash_password(password))
+        assert asyncio.run(verify_password(password, hashed)) is True
         # Verify against wrong password
-        assert verify_password(password + "x", hashed) is False
+        assert asyncio.run(verify_password(password + "x", hashed)) is False
     except Exception as e:
         # If argon2 rejects due to length/content, that's acceptable, but we catch it
         # to ensure the test suite doesn't crash on standard fuzzing strings.
@@ -61,7 +62,8 @@ def test_fuzz_hash_and_verify_password(password):
 @given(password=st.text(), hashed=st.text())
 def test_fuzz_verify_password_random_hash(password, hashed):
     """Ensure verify_password safely rejects invalid hash formats."""
-    result = verify_password(password, hashed)
+    import asyncio
+    result = asyncio.run(verify_password(password, hashed))
     assert result is False
 
 @given(
