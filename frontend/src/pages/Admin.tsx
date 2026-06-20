@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Users, ShieldAlert, Layers, Search, FileText, Globe } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { api } from '../services/api';
@@ -38,7 +38,7 @@ export const Admin: React.FC = () => {
   const [userLimit, setUserLimit] = useState(100);
   const [logLimit, setLogLimit] = useState(100);
 
-  const fetchAdminData = async () => {
+  const fetchAdminData = useCallback(async () => {
     try {
       const statsResp = await api.get('/api/v1/auth/admin/stats');
       setStats(statsResp.data);
@@ -53,11 +53,11 @@ export const Admin: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userLimit, logLimit]);
 
   useEffect(() => {
     fetchAdminData();
-  }, [userLimit, logLimit]);
+  }, [fetchAdminData]);
 
   if (loading) {
     return <div className="flex-center" style={{ minHeight: '50vh', color: 'var(--text-secondary)' }}>Loading dashboard...</div>;

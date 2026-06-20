@@ -11,14 +11,14 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1/auth"
     
     # Database
-    DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./dev.db")
+    DATABASE_URL: str = Field(default="postgresql+asyncpg://user:password@localhost:5432/authdb")
     
     # Caching / Redis
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
     REDIS_PASSWORD: str | None = None
-    USE_FAKEREDIS: bool = True  # Default to True for simple development/test setup
+    USE_FAKEREDIS: bool = False  # Changed default to False to use real Redis
     
     # Security/JWT (Secret Key for HS256)
     JWT_SECRET_KEY: str = Field(default="dev_jwt_secret_key_change_me_in_production")

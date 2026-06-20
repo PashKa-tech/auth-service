@@ -10,6 +10,7 @@ import { Organization } from './pages/Organization';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { ResetPassword } from './pages/ResetPassword';
 import { VerifyEmail } from './pages/VerifyEmail';
+import { InviteAccept } from './pages/InviteAccept';
 export const App: React.FC = () => {
   const [user, setUser] = useState<any>(null);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -160,6 +161,14 @@ export const App: React.FC = () => {
         <Route
           path="/verify-email"
           element={<VerifyEmail />}
+        />
+        <Route
+          path="/invite"
+          element={
+            <GuestRoute>
+              <InviteAccept />
+            </GuestRoute>
+          }
         />
         <Route
           path="/profile"

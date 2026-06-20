@@ -1,5 +1,5 @@
 from src.database import Base
-from src.models.tenant import Tenant, TenantApiKey
+from src.models.tenant import Tenant, TenantApiKey, OrganizationInvite
 from src.models.user import User
 from src.models.session import Session
 from src.models.token import RefreshToken, VerificationToken
@@ -12,6 +12,7 @@ __all__ = [
     "Base",
     "Tenant",
     "TenantApiKey",
+    "OrganizationInvite",
     "User",
     "Session",
     "RefreshToken",

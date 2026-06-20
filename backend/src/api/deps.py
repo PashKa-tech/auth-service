@@ -28,25 +28,8 @@ from src.models.user import User
 api_key_header = APIKeyHeader(name="X-Api-Key", auto_error=False)
 tenant_id_header = APIKeyHeader(name="X-Tenant-ID", auto_error=False)
 
-async def resolve_tenant(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    x_api_key: str | None = Depends(api_key_header),
-    x_tenant_id: str | None = Depends(tenant_id_header)
-) -> uuid.UUID:
-    """
-    FastAPI dependency to resolve the tenant from either:
-    1. X-Api-Key header (hashed lookup in DB)
-    2. X-Tenant-ID header (direct lookup - helpful for testing/internal calls)
-    3. JWT Access Token (for authenticated routes)
-    4. JWT Refresh Token (for /refresh endpoint)
-    """
-    tenant_id: uuid.UUID | None = None
-    
-    # 1. Check if it's an authenticated route via cookie/header
-    # Try to extract from Access Token in cookies
+async def _resolve_from_token(request: Request) -> uuid.UUID | None:
     token = request.cookies.get("access_token")
-    # Or try Authorization Header
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
@@ -55,19 +38,16 @@ async def resolve_tenant(
         payload = verify_access_token(token)
         if payload and "tenant_id" in payload:
             try:
-                tenant_id = uuid.UUID(payload["tenant_id"])
+                return uuid.UUID(payload["tenant_id"])
             except ValueError:
                 pass
+    return None
 
-    # 2. Check for Refresh Token (only for /refresh endpoint)
-    if not tenant_id and request.url.path.endswith("/refresh"):
-        # For mobile/API client, refresh token might be in header X-Refresh-Token
-        # For browser client, it will be in refresh_token cookie
+async def _resolve_from_refresh_token(request: Request, db: AsyncSession) -> uuid.UUID | None:
+    if request.url.path.endswith("/refresh"):
         refresh_token = request.cookies.get("refresh_token") or request.headers.get("X-Refresh-Token")
         if refresh_token:
             token_hash = hashlib.sha256(refresh_token.encode("utf-8")).hexdigest()
-            # Query db for refresh token
-            # Since we don't have tenant_id yet, we lookup globally first (this is safe as hash is UNIQUE)
             from src.models.token import RefreshToken
             from src.models.session import Session
             from src.models.user import User as DBUser
@@ -80,49 +60,39 @@ async def resolve_tenant(
             )
             db_token = result.scalar_one_or_none()
             if db_token:
-                # We can't access user via relationship because it's lazy-loaded by default in async,
-                # but we joined DBUser, so let's get it by query or fetch user_id's tenant
                 result_user = await db.execute(
                     select(DBUser).where(DBUser.id == Session.user_id).join(Session).where(Session.id == db_token.session_id)
                 )
                 db_user = result_user.scalar_one_or_none()
                 if db_user:
-                    tenant_id = db_user.tenant_id
+                    return db_user.tenant_id
+    return None
 
-    # 3. Check X-Api-Key header
-    if not tenant_id and x_api_key:
+async def _resolve_from_api_key(db: AsyncSession, x_api_key: str | None) -> uuid.UUID | None:
+    if x_api_key:
         api_key_hash = hashlib.sha256(x_api_key.encode("utf-8")).hexdigest()
         tenant_repo = TenantRepository(db)
         tenant = await tenant_repo.get_by_api_key_hash(api_key_hash)
         if tenant:
-            tenant_id = tenant.id
+            return tenant.id
+    return None
 
-    # 4. Check X-Tenant-ID header (mainly for testing/local dev)
-    if not tenant_id and x_tenant_id:
+async def _resolve_from_tenant_id_header_or_param(db: AsyncSession, x_tenant_id: str | None, tenant_param: str | None) -> uuid.UUID | None:
+    tenant_val = x_tenant_id or tenant_param
+    if tenant_val:
         try:
-            tenant_uuid = uuid.UUID(x_tenant_id)
+            tenant_uuid = uuid.UUID(tenant_val)
             tenant_repo = TenantRepository(db)
             tenant = await tenant_repo.get_by_id(tenant_uuid)
             if tenant:
-                tenant_id = tenant.id
+                return tenant.id
         except ValueError:
             pass
+    return None
 
-    # 5. Check query parameters (for verification or reset URLs)
-    tenant_param = request.query_params.get("tenant_id")
-    if not tenant_id and tenant_param:
-        try:
-            tenant_uuid = uuid.UUID(tenant_param)
-            tenant_repo = TenantRepository(db)
-            tenant = await tenant_repo.get_by_id(tenant_uuid)
-            if tenant:
-                tenant_id = tenant.id
-        except ValueError:
-            pass
-
-    # 6. Check for Token in Query Params or POST Body (fallback for email verification or password reset)
+async def _resolve_from_verification_token(request: Request, db: AsyncSession) -> uuid.UUID | None:
     token_param = request.query_params.get("token")
-    if not tenant_id and token_param:
+    if token_param:
         try:
             from src.models.token import VerificationToken
             from src.models.user import User as DBUser
@@ -135,11 +105,11 @@ async def resolve_tenant(
             )
             db_user = res.scalar_one_or_none()
             if db_user:
-                tenant_id = db_user.tenant_id
+                return db_user.tenant_id
         except Exception:
             pass
 
-    if not tenant_id and request.method == "POST" and request.url.path.endswith("/reset-password"):
+    if request.method == "POST" and request.url.path.endswith("/reset-password"):
         try:
             body_json = await request.json()
             token_body = body_json.get("token")
@@ -155,11 +125,13 @@ async def resolve_tenant(
                 )
                 db_user = res.scalar_one_or_none()
                 if db_user:
-                    tenant_id = db_user.tenant_id
+                    return db_user.tenant_id
         except Exception:
             pass
+    return None
 
-    if not tenant_id and request.method == "POST" and request.url.path.endswith("/2fa/verify"):
+async def _resolve_from_mfa_token(request: Request) -> uuid.UUID | None:
+    if request.method == "POST" and request.url.path.endswith("/2fa/verify"):
         try:
             body_json = await request.json()
             mfa_token_body = body_json.get("mfa_token")
@@ -167,11 +139,13 @@ async def resolve_tenant(
                 from src.core.security import verify_mfa_token
                 payload = verify_mfa_token(mfa_token_body)
                 if payload and "tenant_id" in payload:
-                    tenant_id = uuid.UUID(payload["tenant_id"])
+                    return uuid.UUID(payload["tenant_id"])
         except Exception:
             pass
+    return None
 
-    if not tenant_id and request.query_params.get("state") and "/oauth/" in request.url.path and "/callback" in request.url.path:
+async def _resolve_from_oauth_state(request: Request) -> uuid.UUID | None:
+    if request.query_params.get("state") and "/oauth/" in request.url.path and "/callback" in request.url.path:
         try:
             state_param = request.query_params.get("state")
             from src.core.redis import init_redis
@@ -180,9 +154,47 @@ async def resolve_tenant(
             state_data_json = await redis_client.get(f"oauth_state:{state_param}")
             if state_data_json:
                 state_data = json.loads(state_data_json)
-                tenant_id = uuid.UUID(state_data["tenant_id"])
+                return uuid.UUID(state_data["tenant_id"])
         except Exception:
             pass
+    return None
+
+async def resolve_tenant(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    x_api_key: str | None = Depends(api_key_header),
+    x_tenant_id: str | None = Depends(tenant_id_header)
+) -> uuid.UUID:
+    """
+    FastAPI dependency to resolve the tenant from either:
+    1. JWT Access Token (for authenticated routes)
+    2. JWT Refresh Token (for /refresh endpoint)
+    3. X-Api-Key header (hashed lookup in DB)
+    4. X-Tenant-ID header or ?tenant_id= query param
+    5. Verification token (reset password, verify email)
+    6. MFA token (/2fa/verify)
+    7. OAuth state (/oauth/.../callback)
+    """
+    tenant_id = await _resolve_from_token(request)
+    
+    if not tenant_id:
+        tenant_id = await _resolve_from_refresh_token(request, db)
+        
+    if not tenant_id:
+        tenant_id = await _resolve_from_api_key(db, x_api_key)
+        
+    if not tenant_id:
+        tenant_param = request.query_params.get("tenant_id")
+        tenant_id = await _resolve_from_tenant_id_header_or_param(db, x_tenant_id, tenant_param)
+        
+    if not tenant_id:
+        tenant_id = await _resolve_from_verification_token(request, db)
+        
+    if not tenant_id:
+        tenant_id = await _resolve_from_mfa_token(request)
+        
+    if not tenant_id:
+        tenant_id = await _resolve_from_oauth_state(request)
 
     if not tenant_id:
         raise HTTPException(
@@ -236,12 +248,14 @@ async def get_email_service() -> EmailService:
     return EmailService()
 
 async def get_two_factor_service(
+    background_tasks: BackgroundTasks,
     user_repo: UserRepository = Depends(get_user_repository),
     two_factor_repo: TwoFactorRepository = Depends(get_two_factor_repository),
     email_service: EmailService = Depends(get_email_service)
 ) -> TwoFactorService:
-    return TwoFactorService(user_repo, two_factor_repo, email_service)
+    return TwoFactorService(user_repo, two_factor_repo, email_service, background_tasks)
 
+from fastapi import BackgroundTasks
 from src.repositories.token import TokenRepository, VerificationTokenRepository
 
 async def get_verification_token_repository(
@@ -251,6 +265,7 @@ async def get_verification_token_repository(
     return VerificationTokenRepository(db, tenant_id)
 
 async def get_auth_service(
+    background_tasks: BackgroundTasks,
     user_repo: UserRepository = Depends(get_user_repository),
     session_repo: SessionRepository = Depends(get_session_repository),
     token_repo: TokenRepository = Depends(get_token_repository),
@@ -259,7 +274,10 @@ async def get_auth_service(
     verification_token_repo: VerificationTokenRepository = Depends(get_verification_token_repository),
     email_service: EmailService = Depends(get_email_service)
 ) -> AuthService:
-    return AuthService(user_repo, session_repo, token_repo, audit_repo, oauth_repo, verification_token_repo, email_service)
+    return AuthService(
+        user_repo, session_repo, token_repo, audit_repo, oauth_repo, 
+        verification_token_repo, email_service, background_tasks
+    )
 
 async def get_oauth_service_dep(
     oauth_repo: OAuthRepository = Depends(get_oauth_repository)
@@ -275,10 +293,12 @@ async def get_tenant_repository(
 from src.services.tenant import TenantService
 
 async def get_tenant_service(
+    background_tasks: BackgroundTasks,
     tenant_repo: TenantRepository = Depends(get_tenant_repository),
-    audit_repo: AuditRepository = Depends(get_audit_repository)
+    audit_repo: AuditRepository = Depends(get_audit_repository),
+    email_service: EmailService = Depends(get_email_service)
 ) -> TenantService:
-    return TenantService(tenant_repo, audit_repo)
+    return TenantService(tenant_repo, audit_repo, email_service, background_tasks)
 
 async def get_webauthn_repository(
     db: AsyncSession = Depends(get_db),

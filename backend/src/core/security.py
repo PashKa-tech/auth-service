@@ -14,16 +14,26 @@ ph = PasswordHasher(
     parallelism=settings.ARGON2_PARALLELISM,
 )
 
-def hash_password(password: str) -> str:
-    """Hash a password using Argon2id."""
+import asyncio
+
+def hash_password_sync(password: str) -> str:
     return ph.hash(password)
 
-def verify_password(password: str, hashed_password: str) -> bool:
-    """Verify a password against its Argon2id hash."""
+def verify_password_sync(password: str, hashed_password: str) -> bool:
     try:
         return ph.verify(hashed_password, password)
     except VerifyMismatchError:
         return False
+
+async def hash_password(password: str) -> str:
+    """Hash a password using Argon2id without blocking the event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, hash_password_sync, password)
+
+async def verify_password(password: str, hashed_password: str) -> bool:
+    """Verify a password against its Argon2id hash without blocking the event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, verify_password_sync, password, hashed_password)
 
 def create_access_token(
     subject: str | uuid.UUID,

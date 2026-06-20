@@ -301,7 +301,7 @@ async def logout_all(
     )
 
 @router.get("/me", response_model=UnifiedResponse)
-async def me(current_user: User = Depends(get_current_user)):
+async def me(current_user: User = Depends(get_current_user)) -> UnifiedResponse:
     return UnifiedResponse(
         success=True,
         data={
@@ -1017,7 +1017,7 @@ async def disable_2fa(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 @router.get("/admin-only", response_model=UnifiedResponse)
-async def admin_only(current_user: User = Depends(RoleChecker(["admin"]))):
+async def admin_only(current_user: User = Depends(RoleChecker(["admin"]))) -> UnifiedResponse:
     """Admin-only endpoint to verify RBAC."""
     return UnifiedResponse(success=True, data={"message": "Welcome, Admin!"})
 

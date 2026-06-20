@@ -14,10 +14,11 @@ from src.core.totp import (
 )
 
 class TwoFactorService:
-    def __init__(self, user_repo: UserRepository, two_factor_repo: TwoFactorRepository, email_service: EmailService):
+    def __init__(self, user_repo: UserRepository, two_factor_repo: TwoFactorRepository, email_service: EmailService, background_tasks: "BackgroundTasks"):
         self.user_repo = user_repo
         self.two_factor_repo = two_factor_repo
         self.email_service = email_service
+        self.background_tasks = background_tasks
 
     async def setup_2fa(self, user: User) -> dict:
         """Initialize 2FA setup: generate temporary secret and backup codes."""
@@ -73,7 +74,8 @@ class TwoFactorService:
         await self.user_repo.update(user)
 
         # Send email notification
-        await self.email_service.send_email(
+        self.background_tasks.add_task(
+            self.email_service.send_email,
             to_email=user.email,
             subject="Двухфакторная аутентификация включена - Auth Service",
             body="""
@@ -134,7 +136,8 @@ class TwoFactorService:
         await self.two_factor_repo.create_codes(user.id, code_hashes)
 
         # Send email notification
-        await self.email_service.send_email(
+        self.background_tasks.add_task(
+            self.email_service.send_email,
             to_email=user.email,
             subject="Резервные коды 2FA обновлены - Auth Service",
             body="""
@@ -163,7 +166,8 @@ class TwoFactorService:
         await self.two_factor_repo.delete_all_for_user(user.id)
 
         # Send email notification
-        await self.email_service.send_email(
+        self.background_tasks.add_task(
+            self.email_service.send_email,
             to_email=user.email,
             subject="Двухфакторная аутентификация отключена - Auth Service",
             body="""

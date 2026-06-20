@@ -1,7 +1,7 @@
 import secrets
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import select, update
+from sqlalchemy import select, update, delete, func
 from src.models.token import RefreshToken, VerificationToken
 from src.models.session import Session
 from src.models.user import User
@@ -17,12 +17,11 @@ class TokenRepository(TenantScopedRepository):
     ) -> RefreshToken:
         # Verify session belongs to the tenant
         result = await self.db.execute(
-            select(Session)
+            select(Session.id)
             .join(User, Session.user_id == User.id)
             .where(Session.id == session_id, User.tenant_id == self.tenant_id)
         )
-        session = result.scalar_one_or_none()
-        if not session:
+        if not result.scalar_one_or_none():
             raise ValueError("Session not found in this tenant context.")
 
         token = RefreshToken(
@@ -46,22 +45,22 @@ class TokenRepository(TenantScopedRepository):
 
     async def revoke(self, token_id: uuid.UUID) -> bool:
         result = await self.db.execute(
-            select(RefreshToken)
-            .join(Session, RefreshToken.session_id == Session.id)
-            .join(User, Session.user_id == User.id)
-            .where(RefreshToken.id == token_id, User.tenant_id == self.tenant_id)
+            update(RefreshToken)
+            .where(
+                RefreshToken.id == token_id,
+                RefreshToken.session_id.in_(
+                    select(Session.id)
+                    .join(User, Session.user_id == User.id)
+                    .where(User.tenant_id == self.tenant_id)
+                )
+            )
+            .values(is_revoked=True)
         )
-        token = result.scalar_one_or_none()
-        if not token:
-            return False
-        token.is_revoked = True
-        self.db.add(token)
         await self.db.flush()
-        return True
+        return result.rowcount > 0
 
     async def revoke_family(self, family_id: str) -> int:
         # Revoke all tokens in family
-        # We must filter by family_id and verify tenant_id by joining Session and User
         result = await self.db.execute(
             update(RefreshToken)
             .where(
@@ -89,11 +88,10 @@ class VerificationTokenRepository(TenantScopedRepository):
         
         # Verify user belongs to the tenant
         result = await self.db.execute(
-            select(User)
+            select(User.id)
             .where(User.id == user_id, User.tenant_id == self.tenant_id)
         )
-        user = result.scalar_one_or_none()
-        if not user:
+        if not result.scalar_one_or_none():
             raise ValueError("User not found in this tenant context.")
             
         token = VerificationToken(
@@ -107,14 +105,13 @@ class VerificationTokenRepository(TenantScopedRepository):
         return token_string
 
     async def get_valid_token(self, token_string: str, token_type: str) -> VerificationToken | None:
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
         result = await self.db.execute(
             select(VerificationToken)
             .join(User, VerificationToken.user_id == User.id)
             .where(
                 VerificationToken.token == token_string,
                 VerificationToken.token_type == token_type,
-                VerificationToken.expires_at > now,
+                VerificationToken.expires_at > func.now(),
                 User.tenant_id == self.tenant_id
             )
         )
@@ -122,11 +119,12 @@ class VerificationTokenRepository(TenantScopedRepository):
 
     async def delete_token(self, token_id: uuid.UUID) -> None:
         result = await self.db.execute(
-            select(VerificationToken)
-            .join(User, VerificationToken.user_id == User.id)
-            .where(VerificationToken.id == token_id, User.tenant_id == self.tenant_id)
+            delete(VerificationToken)
+            .where(
+                VerificationToken.id == token_id,
+                VerificationToken.user_id.in_(
+                    select(User.id).where(User.tenant_id == self.tenant_id)
+                )
+            )
         )
-        token = result.scalar_one_or_none()
-        if token:
-            await self.db.delete(token)
-            await self.db.flush()
+        await self.db.flush()

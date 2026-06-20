@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from src.models.oauth import OAuthAccount
 from src.models.user import User
 from src.repositories.base import TenantScopedRepository
@@ -14,10 +14,9 @@ class OAuthRepository(TenantScopedRepository):
     ) -> OAuthAccount:
         # Verify user belongs to this tenant
         result = await self.db.execute(
-            select(User).where(User.id == user_id, User.tenant_id == self.tenant_id)
+            select(User.id).where(User.id == user_id, User.tenant_id == self.tenant_id)
         )
-        user = result.scalar_one_or_none()
-        if not user:
+        if not result.scalar_one_or_none():
             raise ValueError("User not found in this tenant context.")
 
         oauth_account = OAuthAccount(
@@ -53,17 +52,14 @@ class OAuthRepository(TenantScopedRepository):
 
     async def delete_by_provider(self, user_id: uuid.UUID, provider: str) -> bool:
         result = await self.db.execute(
-            select(OAuthAccount)
-            .join(User, OAuthAccount.user_id == User.id)
+            delete(OAuthAccount)
             .where(
                 OAuthAccount.user_id == user_id,
                 OAuthAccount.provider == provider,
-                User.tenant_id == self.tenant_id
+                OAuthAccount.user_id.in_(
+                    select(User.id).where(User.tenant_id == self.tenant_id)
+                )
             )
         )
-        oauth_account = result.scalar_one_or_none()
-        if not oauth_account:
-            return False
-        await self.db.delete(oauth_account)
         await self.db.flush()
-        return True
+        return result.rowcount > 0

@@ -18,12 +18,10 @@ services:
   backend:
     build: ./backend
     environment:
-      - DB_HOST=db
-      - DB_USER=user
-      - DB_PASSWORD=password
-      - DB_NAME=authdb
+      - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/authdb
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - USE_FAKEREDIS=false
     ports:
       - "8080:8080"
     depends_on:

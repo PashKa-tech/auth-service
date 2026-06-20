@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 import httpx
 from user_agents import parse as parse_user_agent
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from src.models.session import Session
 from src.models.user import User
 from src.repositories.base import TenantScopedRepository
@@ -16,12 +16,11 @@ class SessionRepository(TenantScopedRepository):
         user_agent: str | None = None,
         device_fingerprint: str | None = None
     ) -> Session:
-        # Verify user belongs to the tenant first
+        # Verify user belongs to the tenant first (Exists check)
         result = await self.db.execute(
-            select(User).where(User.id == user_id, User.tenant_id == self.tenant_id)
+            select(User.id).where(User.id == user_id, User.tenant_id == self.tenant_id)
         )
-        user = result.scalar_one_or_none()
-        if not user:
+        if not result.scalar_one_or_none():
             raise ValueError("User not found in this tenant context.")
 
         # Parse User Agent
@@ -96,20 +95,25 @@ class SessionRepository(TenantScopedRepository):
                 Session.user_id == user_id,
                 User.tenant_id == self.tenant_id,
                 Session.is_revoked == False,
-                Session.expires_at > datetime.now(timezone.utc).replace(tzinfo=None)
+                Session.expires_at > func.now()
             )
         )
         return list(result.scalars().all())
 
     async def revoke(self, session_id: uuid.UUID) -> bool:
-        # Check if the session exists and belongs to the tenant first
-        session = await self.get_by_id(session_id)
-        if not session:
-            return False
-        session.is_revoked = True
-        self.db.add(session)
+        # Single trip update with subquery for tenant check
+        result = await self.db.execute(
+            update(Session)
+            .where(
+                Session.id == session_id,
+                Session.user_id.in_(
+                    select(User.id).where(User.tenant_id == self.tenant_id)
+                )
+            )
+            .values(is_revoked=True)
+        )
         await self.db.flush()
-        return True
+        return result.rowcount > 0
 
     async def revoke_all_by_user(self, user_id: uuid.UUID) -> int:
         # Revoke all sessions for user belonging to this tenant

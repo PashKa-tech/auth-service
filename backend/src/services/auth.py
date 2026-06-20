@@ -48,7 +48,8 @@ class AuthService:
         audit_repo: AuditRepository,
         oauth_repo: OAuthRepository,
         verification_token_repo: VerificationTokenRepository,
-        email_service: EmailService
+        email_service: EmailService,
+        background_tasks: "BackgroundTasks"
     ):
         self.user_repo = user_repo
         self.session_repo = session_repo
@@ -57,6 +58,7 @@ class AuthService:
         self.oauth_repo = oauth_repo
         self.verification_token_repo = verification_token_repo
         self.email_service = email_service
+        self.background_tasks = background_tasks
         self.tenant_id = user_repo.tenant_id
 
     async def _check_ip_anomaly(
@@ -99,7 +101,8 @@ class AuthService:
             # Send warning email
             user = await self.user_repo.get_by_id(user_id)
             if user:
-                await self.email_service.send_email(
+                self.background_tasks.add_task(
+                    self.email_service.send_email,
                     to_email=user.email,
                     subject="Предупреждение безопасности: обнаружен подозрительный вход - Auth Service",
                     body=f"""
@@ -140,7 +143,7 @@ class AuthService:
             raise ValueError("Email already registered")
 
         # 2. Hash password and create user
-        pwd_hash = hash_password(password)
+        pwd_hash = await hash_password(password)
         user = await self.user_repo.create(
             email=email,
             password_hash=pwd_hash,
@@ -156,7 +159,8 @@ class AuthService:
         )
 
         verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
-        await self.email_service.send_verification_email(
+        self.background_tasks.add_task(
+            self.email_service.send_verification_email,
             email=user.email,
             verification_link=verify_url
         )
@@ -184,7 +188,7 @@ class AuthService:
 
         # 1. Fetch user
         user = await self.user_repo.get_by_email(email)
-        if not user or not user.password_hash or not verify_password(password, user.password_hash):
+        if not user or not user.password_hash or not await verify_password(password, user.password_hash):
             LOGIN_COUNTER.labels(status="failed", tenant_id=str(self.tenant_id)).inc()
             await self.audit_repo.create(
                 action="login_failed",
@@ -555,7 +559,8 @@ class AuthService:
         )
         
         verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
-        await self.email_service.send_verification_email(
+        self.background_tasks.add_task(
+            self.email_service.send_verification_email,
             email=user.email,
             verification_link=verify_url
         )
@@ -601,7 +606,8 @@ class AuthService:
         )
         
         reset_url = f"{settings.FRONTEND_URL}/reset-password?token={raw_token}"
-        await self.email_service.send_password_reset_email(
+        self.background_tasks.add_task(
+            self.email_service.send_password_reset_email,
             email=user.email,
             reset_link=reset_url
         )
@@ -621,7 +627,7 @@ class AuthService:
             raise ValueError("User not found")
             
         # Update password hash
-        user.password_hash = hash_password(new_password)
+        user.password_hash = await hash_password(new_password)
         await self.user_repo.update(user)
         
         # Security Best Practice: Revoke all sessions on password change

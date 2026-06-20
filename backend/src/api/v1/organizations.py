@@ -78,3 +78,148 @@ async def revoke_api_key(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
         
     return UnifiedResponse(success=True, message="API Key revoked successfully")
+
+# --- Team Management ---
+
+class InviteRequest(BaseModel):
+    email: str
+    role: str
+
+@router.get("/members", response_model=UnifiedResponse)
+async def list_members(
+    current_user: User = Depends(RoleChecker(["admin"])),
+    tenant_service: TenantService = Depends(get_tenant_service)
+):
+    members = await tenant_service.get_members()
+    data = []
+    for m in members:
+        data.append({
+            "id": str(m.id),
+            "email": m.email,
+            "role": m.role,
+            "created_at": m.created_at.isoformat() + "Z"
+        })
+    return UnifiedResponse(success=True, data=data)
+
+@router.delete("/members/{user_id}", response_model=UnifiedResponse)
+async def remove_member(
+    user_id: uuid.UUID,
+    current_user: User = Depends(requires_fresh_auth),
+    tenant_service: TenantService = Depends(get_tenant_service)
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can remove members")
+    
+    if current_user.id == user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove yourself")
+
+    success = await tenant_service.remove_member(user_id, current_user.id)
+    if not success:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+    
+    return UnifiedResponse(success=True, message="Member removed")
+
+@router.get("/invites", response_model=UnifiedResponse)
+async def list_invites(
+    current_user: User = Depends(RoleChecker(["admin"])),
+    tenant_service: TenantService = Depends(get_tenant_service)
+):
+    invites = await tenant_service.get_invites()
+    data = []
+    for i in invites:
+        data.append({
+            "id": str(i.id),
+            "email": i.email,
+            "role": i.role,
+            "expires_at": i.expires_at.isoformat() + "Z",
+            "created_at": i.created_at.isoformat() + "Z"
+        })
+    return UnifiedResponse(success=True, data=data)
+
+@router.post("/invites", response_model=UnifiedResponse)
+async def create_invite(
+    req: InviteRequest,
+    current_user: User = Depends(requires_fresh_auth),
+    tenant_service: TenantService = Depends(get_tenant_service)
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can send invites")
+
+    try:
+        await tenant_service.create_invite(req.email, req.role, current_user.id)
+        return UnifiedResponse(success=True, message="Invitation sent successfully")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.delete("/invites/{invite_id}", response_model=UnifiedResponse)
+async def delete_invite(
+    invite_id: uuid.UUID,
+    current_user: User = Depends(requires_fresh_auth),
+    tenant_service: TenantService = Depends(get_tenant_service)
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can delete invites")
+
+    success = await tenant_service.delete_invite(invite_id, current_user.id)
+    if not success:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite not found")
+    
+    return UnifiedResponse(success=True, message="Invitation revoked")
+
+class AcceptInviteRequest(BaseModel):
+    token: str
+    password: str
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.database import get_db
+
+@router.post("/invites/accept", response_model=UnifiedResponse)
+async def accept_invite(
+    req: AcceptInviteRequest,
+    db: AsyncSession = Depends(get_db)
+) -> UnifiedResponse:
+    import hashlib
+    from datetime import datetime, timezone
+    from src.models.tenant import OrganizationInvite
+    from src.models.user import User as DBUser
+    from src.core.security import hash_password
+    from sqlalchemy import select
+    
+    token_hash = hashlib.sha256(req.token.encode("utf-8")).hexdigest()
+    
+    result = await db.execute(
+        select(OrganizationInvite).where(OrganizationInvite.token_hash == token_hash)
+    )
+    invite = result.scalar_one_or_none()
+    
+    if not invite:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid or expired invitation token")
+        
+    if invite.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation has expired")
+
+    # Check if user already exists in this tenant
+    res_user = await db.execute(
+        select(DBUser).where(DBUser.tenant_id == invite.tenant_id, DBUser.email == invite.email)
+    )
+    if res_user.scalar_one_or_none():
+        # They are already a member! Just delete the invite.
+        await db.delete(invite)
+        await db.flush()
+        return UnifiedResponse(success=True, message="You are already a member of this organization. You can now login.")
+
+    # Create the user
+    new_user = DBUser(
+        tenant_id=invite.tenant_id,
+        email=invite.email,
+        password_hash=hash_password(req.password),
+        role=invite.role,
+        is_verified=True # Email is verified because they received the invite
+    )
+    db.add(new_user)
+    
+    # Delete the invite
+    await db.delete(invite)
+    await db.commit()
+    
+    return UnifiedResponse(success=True, message="Invitation accepted successfully. You can now login.")
