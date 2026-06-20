@@ -22,8 +22,10 @@ router.include_router(mfa_router)
 router.include_router(webauthn_router)
 router.include_router(session_router)
 
+from src.api.deps import get_auth_service, requires_fresh_auth, RoleChecker
+
 @router.get("/admin-only", response_model=UnifiedResponse)
-async def admin_only_route(current_user=Depends(require_role("admin"))):
+async def admin_only_route(current_user=Depends(RoleChecker(["admin"]))):
     return UnifiedResponse(success=True, data={"message": "Welcome, Admin!"})
 
 # Config and Captcha Endpoints
