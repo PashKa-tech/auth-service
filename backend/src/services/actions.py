@@ -25,11 +25,9 @@ class ActionsService:
         )
         return list(res.scalars().all())
 
-    def execute_action(self, code: str, event_data: Dict[str, Any], api_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_action_sync(self, code: str, event_data: Dict[str, Any], api_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Executes a JS script using mini-racer.
-        The script MUST expose a function `onExecute(event, api)`.
-        We run it, and expect it to modify the `api` object.
+        Executes a JS script using mini-racer synchronously.
         """
         if not HAS_MINI_RACER:
             logger.warning("Skipping JS execution because mini-racer is not installed.")
@@ -89,11 +87,19 @@ class ActionsService:
         ctx.eval(wrapper)
         
         try:
-            result_json = ctx.call("_runWrapper", json.dumps(event_data), json.dumps(api_data))
+            result_json = ctx.call("_runWrapper", json.dumps(event_data), json.dumps(api_data), timeout=1000)
             return json.loads(result_json)
         except Exception as e:
             logger.error(f"Error executing JS action: {str(e)}")
             return api_data
+
+    async def execute_action(self, code: str, event_data: Dict[str, Any], api_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Executes a JS script using mini-racer asynchronously without blocking the event loop.
+        """
+        import asyncio
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._execute_action_sync, code, event_data, api_data)
 
     async def execute_post_login_actions(self, tenant_id: uuid.UUID, user: Any, request_info: dict) -> Dict[str, Any]:
         """Runs all post-login actions for a tenant and returns the mutated api object."""
@@ -114,7 +120,7 @@ class ActionsService:
         api_data = {}
         
         for action in actions:
-            api_data = self.execute_action(action.code, event_data, api_data)
+            api_data = await self.execute_action(action.code, event_data, api_data)
             
             if api_data.get("access", {}).get("denied"):
                 raise ValueError(api_data["access"].get("denyReason", "Access denied by custom action"))

@@ -1,4 +1,4 @@
-.PHONY: up down test-be build migrate
+.PHONY: up down test-be build migrate lint-be scan
 
 up:
 	docker-compose up -d
@@ -13,4 +13,10 @@ build:
 	docker-compose build
 
 migrate:
-	alembic upgrade head
+	docker-compose exec backend alembic upgrade head
+
+lint-be:
+	docker-compose exec backend ruff check .
+
+scan:
+	docker-compose exec backend bandit -r .
