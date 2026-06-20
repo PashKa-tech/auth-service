@@ -251,3 +251,53 @@ async def get_tenant_branding(
         "primary_color": tenant.primary_color,
         "font_family": tenant.font_family
     })
+
+from pydantic import BaseModel
+from typing import Optional
+
+class TenantSettingsUpdate(BaseModel):
+    name: Optional[str] = None
+    logo_url: Optional[str] = None
+    primary_color: Optional[str] = None
+    font_family: Optional[str] = None
+    pre_login_webhook_url: Optional[str] = None
+
+@router.put("/current/settings", response_model=UnifiedResponse)
+async def update_tenant_settings(
+    body: TenantSettingsUpdate,
+    db: Any = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(resolve_tenant),
+    current_user: Any = Depends(admin_only)
+):
+    """Update tenant settings (Branding, Webhooks). Requires admin."""
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from src.models.tenant import Tenant
+    session: AsyncSession = db
+    
+    res = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = res.scalar_one_or_none()
+    
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Organization not found")
+        
+    if body.name is not None:
+        tenant.name = body.name
+    if body.logo_url is not None:
+        tenant.logo_url = body.logo_url
+    if body.primary_color is not None:
+        tenant.primary_color = body.primary_color
+    if body.font_family is not None:
+        tenant.font_family = body.font_family
+    if body.pre_login_webhook_url is not None:
+        tenant.pre_login_webhook_url = body.pre_login_webhook_url
+        
+    await session.commit()
+    
+    return UnifiedResponse(success=True, data={
+        "name": tenant.name,
+        "logo_url": tenant.logo_url,
+        "primary_color": tenant.primary_color,
+        "font_family": tenant.font_family,
+        "pre_login_webhook_url": tenant.pre_login_webhook_url
+    })

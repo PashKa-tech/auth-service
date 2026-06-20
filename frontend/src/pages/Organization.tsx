@@ -2,9 +2,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Building2, Key, Trash2, Plus, AlertCircle, CheckCircle, Copy, Users, Mail } from 'lucide-react';
 import { api } from '../services/api';
 import { motion } from 'framer-motion';
+import { BrandingSettings } from '../components/settings/BrandingSettings';
+import { OAuthAppsList } from '../components/settings/OAuthAppsList';
+import { SAMLSettings } from '../components/settings/SAMLSettings';
+import { WebhookSettings } from '../components/settings/WebhookSettings';
+import { RBACSettings } from '../components/settings/RBACSettings';
 
 export const Organization: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'api' | 'team'>('api');
+  const [activeTab, setActiveTab] = useState<'api' | 'team' | 'branding' | 'oauth_apps' | 'saml' | 'webhooks' | 'roles'>('branding');
   const [org, setOrg] = useState<any>(null);
   const [apiKeys, setApiKeys] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
@@ -197,18 +202,69 @@ export const Organization: React.FC = () => {
       </motion.div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--border-glass)', marginBottom: '1.5rem', paddingBottom: '0.5rem' }}>
+      <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--border-glass)', marginBottom: '1.5rem', paddingBottom: '0.5rem', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+        <button
+          onClick={() => setActiveTab('branding')}
+          className="btn"
+          style={{
+            background: 'transparent', border: 'none', borderRadius: '0', fontWeight: 500,
+            borderBottom: activeTab === 'branding' ? '2px solid var(--primary-color)' : '2px solid transparent',
+            color: activeTab === 'branding' ? 'var(--text-primary)' : 'var(--text-secondary)'
+          }}
+        >
+          Branding
+        </button>
+        <button
+          onClick={() => setActiveTab('oauth_apps')}
+          className="btn"
+          style={{
+            background: 'transparent', border: 'none', borderRadius: '0', fontWeight: 500,
+            borderBottom: activeTab === 'oauth_apps' ? '2px solid var(--primary-color)' : '2px solid transparent',
+            color: activeTab === 'oauth_apps' ? 'var(--text-primary)' : 'var(--text-secondary)'
+          }}
+        >
+          OAuth Apps
+        </button>
+        <button
+          onClick={() => setActiveTab('saml')}
+          className="btn"
+          style={{
+            background: 'transparent', border: 'none', borderRadius: '0', fontWeight: 500,
+            borderBottom: activeTab === 'saml' ? '2px solid var(--primary-color)' : '2px solid transparent',
+            color: activeTab === 'saml' ? 'var(--text-primary)' : 'var(--text-secondary)'
+          }}
+        >
+          SAML SSO
+        </button>
+        <button
+          onClick={() => setActiveTab('webhooks')}
+          className="btn"
+          style={{
+            background: 'transparent', border: 'none', borderRadius: '0', fontWeight: 500,
+            borderBottom: activeTab === 'webhooks' ? '2px solid var(--primary-color)' : '2px solid transparent',
+            color: activeTab === 'webhooks' ? 'var(--text-primary)' : 'var(--text-secondary)'
+          }}
+        >
+          Webhooks
+        </button>
+        <button
+          onClick={() => setActiveTab('roles')}
+          className="btn"
+          style={{
+            background: 'transparent', border: 'none', borderRadius: '0', fontWeight: 500,
+            borderBottom: activeTab === 'roles' ? '2px solid var(--primary-color)' : '2px solid transparent',
+            color: activeTab === 'roles' ? 'var(--text-primary)' : 'var(--text-secondary)'
+          }}
+        >
+          Roles
+        </button>
         <button
           onClick={() => setActiveTab('api')}
           className="btn"
           style={{
-            background: 'transparent',
-            border: 'none',
+            background: 'transparent', border: 'none', borderRadius: '0', fontWeight: 500,
             borderBottom: activeTab === 'api' ? '2px solid var(--primary-color)' : '2px solid transparent',
-            color: activeTab === 'api' ? 'var(--text-primary)' : 'var(--text-secondary)',
-            padding: '0.5rem 1rem',
-            borderRadius: '0',
-            fontWeight: 500
+            color: activeTab === 'api' ? 'var(--text-primary)' : 'var(--text-secondary)'
           }}
         >
           <Key size={16} /> API Keys
@@ -217,18 +273,20 @@ export const Organization: React.FC = () => {
           onClick={() => setActiveTab('team')}
           className="btn"
           style={{
-            background: 'transparent',
-            border: 'none',
+            background: 'transparent', border: 'none', borderRadius: '0', fontWeight: 500,
             borderBottom: activeTab === 'team' ? '2px solid var(--primary-color)' : '2px solid transparent',
-            color: activeTab === 'team' ? 'var(--text-primary)' : 'var(--text-secondary)',
-            padding: '0.5rem 1rem',
-            borderRadius: '0',
-            fontWeight: 500
+            color: activeTab === 'team' ? 'var(--text-primary)' : 'var(--text-secondary)'
           }}
         >
           <Users size={16} /> Team
         </button>
       </div>
+
+      {activeTab === 'branding' && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><BrandingSettings /></motion.div>}
+      {activeTab === 'oauth_apps' && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><OAuthAppsList /></motion.div>}
+      {activeTab === 'saml' && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><SAMLSettings /></motion.div>}
+      {activeTab === 'webhooks' && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><WebhookSettings /></motion.div>}
+      {activeTab === 'roles' && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><RBACSettings /></motion.div>}
 
       {/* API Keys Tab */}
       {activeTab === 'api' && (
