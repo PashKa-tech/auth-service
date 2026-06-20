@@ -63,11 +63,18 @@ async def setup_test_db():
         if not res.scalar_one_or_none():
             tenant = Tenant(
                 id=TEST_TENANT_ID,
-                name="Test Corporate Tenant",
-                api_key=TEST_API_KEY_HASH,
-                api_secret_hash="fake_argon2_secret_hash_not_needed_for_keys"
+                name="Test Corporate Tenant"
             )
             db.add(tenant)
+            
+            from src.models.tenant import TenantApiKey
+            api_key = TenantApiKey(
+                tenant_id=TEST_TENANT_ID,
+                name="Test Key",
+                key_prefix="test_",
+                api_key_hash=TEST_API_KEY_HASH
+            )
+            db.add(api_key)
             await db.commit()
             
     yield

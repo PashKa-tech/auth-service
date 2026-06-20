@@ -6,7 +6,6 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -16,10 +15,13 @@ from src.core.logging import setup_logging, logger
 from src.core.context import set_request_id, get_request_id, set_tenant_id
 from src.core.redis import init_redis, close_redis
 from src.core.tasks import start_garbage_collector, stop_garbage_collector
-from src.core.metrics import REQUEST_LATENCY
+from src.core.metrics import REQUEST_LATENCY, http_requests_total, http_request_duration_seconds, auth_failures_total
 from src.api.v1.auth import router as auth_router
 from src.api.v1.health import router as health_router
 from src.api.v1.organizations import router as organizations_router
+from src.api.v1.metrics import router as metrics_router
+from src.api.v1.rbac import router as rbac_router
+from src.api.v1.saml import router as saml_router
 from src.middlewares.rbac import RBACMiddleware
 
 limiter = Limiter(key_func=get_remote_address)
@@ -68,7 +70,7 @@ app.add_middleware(RBACMiddleware)
 
 @app.middleware("http")
 async def prometheus_metrics_middleware(request: Request, call_next):
-    """Middleware to measure HTTP request latency."""
+    """Middleware to measure HTTP request metrics."""
     # Exclude metrics endpoint to prevent noise
     if request.url.path == "/metrics":
         return await call_next(request)
@@ -80,8 +82,16 @@ async def prometheus_metrics_middleware(request: Request, call_next):
     # Get path template if available, else fallback to raw path
     route = request.scope.get("route")
     endpoint = route.path if route else request.url.path
+    method = request.method
+    status_code = str(response.status_code)
 
     REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
+    http_requests_total.labels(method=method, endpoint=endpoint, status=status_code).inc()
+    http_request_duration_seconds.labels(method=method, endpoint=endpoint).observe(duration)
+
+    if response.status_code in (401, 403):
+        auth_failures_total.inc()
+
     return response
 
 @app.middleware("http")
@@ -166,14 +176,12 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 # --- Routes Registration ---
 
-@app.get("/metrics")
-def metrics():
-    """Expose Prometheus metrics."""
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
 # Global health checks
 app.include_router(health_router)
 
 # Register API routers
+app.include_router(metrics_router)
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(organizations_router, prefix=settings.API_V1_STR + "/organizations", tags=["organizations"])
+app.include_router(rbac_router, prefix=settings.API_V1_STR + "/rbac", tags=["rbac"])
+app.include_router(saml_router, prefix=settings.API_V1_STR + "/auth", tags=["saml"])

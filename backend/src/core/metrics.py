@@ -25,3 +25,20 @@ ACTIVE_SESSIONS = Gauge(
     "Number of active sessions",
     ["tenant_id"]
 )
+
+http_requests_total = Counter(
+    "http_requests_total",
+    "Total HTTP requests",
+    ["method", "endpoint", "status"]
+)
+
+http_request_duration_seconds = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request latency in seconds",
+    ["method", "endpoint"]
+)
+
+auth_failures_total = Counter(
+    "auth_failures_total",
+    "Total authentication failures"
+)

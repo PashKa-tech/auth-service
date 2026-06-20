@@ -7,6 +7,9 @@ from src.models.oauth import OAuthAccount
 from src.models.audit import AuditLog
 from src.models.two_factor import TwoFactorBackupCode
 from src.models.webauthn import WebAuthnCredential
+from src.models.webhook import WebhookEndpoint, WebhookDelivery
+from src.models.rbac import Role, RolePermission, UserRole
+from src.models.saml import SamlConnection
 
 __all__ = [
     "Base",
@@ -21,4 +24,10 @@ __all__ = [
     "TwoFactorBackupCode",
     "WebAuthnCredential",
     "VerificationToken",
+    "WebhookEndpoint",
+    "WebhookDelivery",
+    "Role",
+    "RolePermission",
+    "UserRole",
+    "SamlConnection",
 ]

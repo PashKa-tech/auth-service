@@ -402,6 +402,40 @@ class RoleChecker:
             )
         return current_user
 
+class PermissionChecker:
+    def __init__(self, required_permission: str):
+        self.required_permission = required_permission
+        
+    async def __call__(
+        self,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ) -> User:
+        # System admins bypass permission checks
+        if current_user.role == "admin":
+            return current_user
+            
+        from src.models.rbac import UserRole, Role, RolePermission
+        from sqlalchemy import select
+        
+        result = await db.execute(
+            select(RolePermission)
+            .join(Role)
+            .join(UserRole)
+            .where(
+                UserRole.user_id == current_user.id,
+                RolePermission.permission == self.required_permission
+            )
+        )
+        
+        if not result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: missing '{self.required_permission}' permission"
+            )
+            
+        return current_user
+
 
 async def requires_fresh_auth(
     request: Request,
