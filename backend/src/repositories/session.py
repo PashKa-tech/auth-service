@@ -6,6 +6,25 @@ from sqlalchemy import select, update, func
 from src.models.session import Session
 from src.models.user import User
 from src.repositories.base import TenantScopedRepository
+from src.database import async_session_factory
+
+async def fetch_and_update_geoip(session_id: uuid.UUID, ip_address: str):
+    try:
+        from sqlalchemy import update
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(f"http://ip-api.com/json/{ip_address}")
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("status") == "success":
+                    city = data.get("city", "")
+                    country = data.get("country", "")
+                    location = f"{city}, {country}".strip(", ")
+                    if location:
+                        async with async_session_factory() as db:
+                            await db.execute(update(Session).where(Session.id == session_id).values(location=location))
+                            await db.commit()
+    except Exception:
+        pass
 
 class SessionRepository(TenantScopedRepository):
     async def create(
@@ -47,23 +66,7 @@ class SessionRepository(TenantScopedRepository):
             except Exception:
                 pass
 
-        # Fetch Geo IP (Synchronously during session creation, adds ~100-200ms latency but provides immediate security context)
         location = None
-        if ip_address and ip_address not in ("127.0.0.1", "::1", "localhost"):
-            try:
-                # Use ip-api.com for free IP geolocation
-                async with httpx.AsyncClient(timeout=2.0) as client:
-                    resp = await client.get(f"http://ip-api.com/json/{ip_address}")
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        if data.get("status") == "success":
-                            city = data.get("city", "")
-                            country = data.get("country", "")
-                            location = f"{city}, {country}".strip(", ")
-            except Exception as e:
-                # Silently fail if geo-ip service is down to not block login
-                pass
-
         session = Session(
             user_id=user_id,
             expires_at=expires_at,
@@ -78,6 +81,12 @@ class SessionRepository(TenantScopedRepository):
         self.db.add(session)
         await self.db.flush()
         return session
+
+    def enrich_geoip_background(self, background_tasks, session_id: uuid.UUID, ip_address: str):
+        if ip_address and ip_address not in ("127.0.0.1", "::1", "localhost"):
+            background_tasks.add_task(fetch_and_update_geoip, session_id, ip_address)
+
+
 
     async def get_by_id(self, session_id: uuid.UUID) -> Session | None:
         result = await self.db.execute(

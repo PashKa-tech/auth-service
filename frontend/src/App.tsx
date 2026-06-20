@@ -1,16 +1,66 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { api } from './services/api';
 import { Layout } from './components/Layout';
-import { Login } from './pages/Login';
-import { Profile } from './pages/Profile';
-import { Admin } from './pages/Admin';
-import { Organization } from './pages/Organization';
-import { ForgotPassword } from './pages/ForgotPassword';
-import { ResetPassword } from './pages/ResetPassword';
-import { VerifyEmail } from './pages/VerifyEmail';
-import { InviteAccept } from './pages/InviteAccept';
+
+const Login = lazy(() => import('./pages/Login').then(m => ({ default: m.Login })));
+const Profile = lazy(() => import('./pages/Profile').then(m => ({ default: m.Profile })));
+const Admin = lazy(() => import('./pages/Admin').then(m => ({ default: m.Admin })));
+const Organization = lazy(() => import('./pages/Organization').then(m => ({ default: m.Organization })));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword').then(m => ({ default: m.ForgotPassword })));
+const ResetPassword = lazy(() => import('./pages/ResetPassword').then(m => ({ default: m.ResetPassword })));
+const VerifyEmail = lazy(() => import('./pages/VerifyEmail').then(m => ({ default: m.VerifyEmail })));
+const InviteAccept = lazy(() => import('./pages/InviteAccept').then(m => ({ default: m.InviteAccept })));
+
+export const PageLoader = ({ text = "Loading..." }: { text?: string }) => (
+  <div className="flex-center" style={{ minHeight: '100vh', background: 'var(--bg-main)' }}>
+    <div className="flex-col flex-center gap-xl">
+      <div style={{ position: 'relative', width: '80px', height: '80px' }} className="flex-center">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
+          style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            borderRadius: '50%', border: '3px solid transparent',
+            borderTopColor: 'var(--primary-color)', borderRightColor: 'var(--primary-color)',
+            boxShadow: '0 0 20px rgba(139, 92, 246, 0.5)', opacity: 0.8
+          }}
+        />
+        <motion.div
+          animate={{ rotate: -360 }}
+          transition={{ repeat: Infinity, duration: 3, ease: 'linear' }}
+          style={{
+            position: 'absolute', top: '-10px', left: '-10px', right: '-10px', bottom: '-10px',
+            borderRadius: '50%', border: '2px dashed var(--primary-color)', opacity: 0.3
+          }}
+        />
+        <motion.div 
+          animate={{ scale: [0.95, 1.05, 0.95], opacity: [0.8, 1, 0.8] }}
+          transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+          className="logo-icon"
+          style={{
+            width: '60px', height: '60px', fontSize: '1.5rem', margin: 0,
+            boxShadow: '0 0 15px rgba(139, 92, 246, 0.4)'
+          }}
+        >
+          AG
+        </motion.div>
+      </div>
+      <motion.p 
+        animate={{ opacity: [0.5, 1, 0.5] }}
+        transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+        style={{ 
+          color: 'var(--primary-color)', fontSize: '0.9rem', letterSpacing: '3px',
+          fontWeight: 600, textTransform: 'uppercase', textShadow: '0 0 10px rgba(139, 92, 246, 0.3)'
+        }}
+      >
+        {text}
+      </motion.p>
+    </div>
+  </div>
+);
+
 export const App: React.FC = () => {
   const [user, setUser] = useState<any>(null);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -41,69 +91,7 @@ export const App: React.FC = () => {
   };
 
   if (checkingSession) {
-    return (
-      <div className="flex-center" style={{ minHeight: '100vh', background: 'var(--bg-main)' }}>
-        <div className="flex-col flex-center gap-xl">
-          <div style={{ position: 'relative', width: '80px', height: '80px' }} className="flex-center">
-            {/* Outer glowing rings */}
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
-              style={{
-                position: 'absolute',
-                top: 0, left: 0, right: 0, bottom: 0,
-                borderRadius: '50%',
-                border: '3px solid transparent',
-                borderTopColor: 'var(--primary-color)',
-                borderRightColor: 'var(--primary-color)',
-                boxShadow: '0 0 20px rgba(139, 92, 246, 0.5)',
-                opacity: 0.8
-              }}
-            />
-            <motion.div
-              animate={{ rotate: -360 }}
-              transition={{ repeat: Infinity, duration: 3, ease: 'linear' }}
-              style={{
-                position: 'absolute',
-                top: '-10px', left: '-10px', right: '-10px', bottom: '-10px',
-                borderRadius: '50%',
-                border: '2px dashed var(--primary-color)',
-                opacity: 0.3
-              }}
-            />
-            {/* Inner pulsing logo */}
-            <motion.div 
-              animate={{ scale: [0.95, 1.05, 0.95], opacity: [0.8, 1, 0.8] }}
-              transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
-              className="logo-icon"
-              style={{
-                width: '60px',
-                height: '60px',
-                fontSize: '1.5rem',
-                margin: 0,
-                boxShadow: '0 0 15px rgba(139, 92, 246, 0.4)'
-              }}
-            >
-              AG
-            </motion.div>
-          </div>
-          <motion.p 
-            animate={{ opacity: [0.5, 1, 0.5] }}
-            transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
-            style={{ 
-              color: 'var(--primary-color)', 
-              fontSize: '0.9rem',
-              letterSpacing: '3px',
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              textShadow: '0 0 10px rgba(139, 92, 246, 0.3)'
-            }}
-          >
-            Restoring session...
-          </motion.p>
-        </div>
-      </div>
-    );
+    return <PageLoader text="Restoring session..." />;
   }
 
   // --- Route Guards ---
@@ -137,66 +125,68 @@ export const App: React.FC = () => {
 
   return (
     <BrowserRouter>
-      <Routes>
-        <Route
-          path="/login"
-          element={
-            <GuestRoute>
-              <Login onLoginSuccess={handleLoginSuccess} />
-            </GuestRoute>
-          }
-        />
-        <Route
-          path="/forgot-password"
-          element={
-            <GuestRoute>
-              <ForgotPassword />
-            </GuestRoute>
-          }
-        />
-        <Route
-          path="/reset-password"
-          element={<ResetPassword />}
-        />
-        <Route
-          path="/verify-email"
-          element={<VerifyEmail />}
-        />
-        <Route
-          path="/invite"
-          element={
-            <GuestRoute>
-              <InviteAccept />
-            </GuestRoute>
-          }
-        />
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute>
-              <Profile />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin"
-          element={
-            <AdminRoute>
-              <Admin />
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/organization"
-          element={
-            <AdminRoute>
-              <Organization />
-            </AdminRoute>
-          }
-        />
-        {/* Default redirect to profile or login */}
-        <Route path="*" element={<Navigate to={user ? '/profile' : '/login'} replace />} />
-      </Routes>
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          <Route
+            path="/login"
+            element={
+              <GuestRoute>
+                <Login onLoginSuccess={handleLoginSuccess} />
+              </GuestRoute>
+            }
+          />
+          <Route
+            path="/forgot-password"
+            element={
+              <GuestRoute>
+                <ForgotPassword />
+              </GuestRoute>
+            }
+          />
+          <Route
+            path="/reset-password"
+            element={<ResetPassword />}
+          />
+          <Route
+            path="/verify-email"
+            element={<VerifyEmail />}
+          />
+          <Route
+            path="/invite"
+            element={
+              <GuestRoute>
+                <InviteAccept />
+              </GuestRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <AdminRoute>
+                <Admin />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/organization"
+            element={
+              <AdminRoute>
+                <Organization />
+              </AdminRoute>
+            }
+          />
+          {/* Default redirect to profile or login */}
+          <Route path="*" element={<Navigate to={user ? '/profile' : '/login'} replace />} />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 };

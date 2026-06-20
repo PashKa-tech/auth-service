@@ -53,19 +53,12 @@ async def _resolve_from_refresh_token(request: Request, db: AsyncSession) -> uui
             from src.models.user import User as DBUser
             from sqlalchemy import select
             result = await db.execute(
-                select(RefreshToken)
-                .join(Session, RefreshToken.session_id == Session.id)
-                .join(DBUser, Session.user_id == DBUser.id)
+                select(DBUser.tenant_id)
+                .join(Session, Session.user_id == DBUser.id)
+                .join(RefreshToken, RefreshToken.session_id == Session.id)
                 .where(RefreshToken.token_hash == token_hash)
             )
-            db_token = result.scalar_one_or_none()
-            if db_token:
-                result_user = await db.execute(
-                    select(DBUser).where(DBUser.id == Session.user_id).join(Session).where(Session.id == db_token.session_id)
-                )
-                db_user = result_user.scalar_one_or_none()
-                if db_user:
-                    return db_user.tenant_id
+            return result.scalar_one_or_none()
     return None
 
 async def _resolve_from_api_key(db: AsyncSession, x_api_key: str | None) -> uuid.UUID | None:
@@ -356,19 +349,27 @@ async def get_current_user(
             detail="Invalid token identifier formats"
         )
         
-    # Check if session is revoked in DB
-    # We can inject session_repo if needed or run select on Session table
-    from src.models.session import Session as DBSession
-    from sqlalchemy import select
-    result_session = await db.execute(
-        select(DBSession).where(DBSession.id == session_uuid, DBSession.is_revoked == False)
-    )
-    session = result_session.scalar_one_or_none()
-    if not session or session.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session has been revoked or expired"
+    # Check Redis for session validity to save DB query
+    from src.core.redis import init_redis
+    redis_client = await init_redis()
+    cache_key = f"session_valid:{session_uuid}"
+    is_valid = await redis_client.get(cache_key)
+    
+    if is_valid != b"1":
+        # Check if session is revoked in DB
+        from src.models.session import Session as DBSession
+        from sqlalchemy import select
+        result_session = await db.execute(
+            select(DBSession).where(DBSession.id == session_uuid, DBSession.is_revoked == False)
         )
+        session = result_session.scalar_one_or_none()
+        if not session or session.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session has been revoked or expired"
+            )
+        # Cache for 60 seconds
+        await redis_client.setex(cache_key, 60, "1")
 
     # Fetch user
     user = await user_repo.get_by_id(user_uuid)

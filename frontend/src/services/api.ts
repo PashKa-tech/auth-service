@@ -10,6 +10,30 @@ export interface ApiResponse<T = any> {
   meta?: any;
 }
 
+export class ApiError extends Error {
+  public status: number;
+  public data: any;
+
+  constructor(status: number, message: string, data?: any) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.data = data;
+  }
+}
+
+let isRefreshing = false;
+let refreshSubscribers: ((success: boolean) => void)[] = [];
+
+function onRefreshed(success: boolean) {
+  refreshSubscribers.forEach((cb) => cb(success));
+  refreshSubscribers = [];
+}
+
+function addRefreshSubscriber(cb: (success: boolean) => void) {
+  refreshSubscribers.push(cb);
+}
+
 export function getApiKey(): string {
   return localStorage.getItem('auth_api_key') || import.meta.env.VITE_API_KEY || '';
 }
@@ -60,18 +84,32 @@ async function request<T = any>(
   
   // Auto token refresh on 401 (only if not already trying to refresh or login)
   if (response.status === 401 && !endpoint.includes('/auth/refresh') && !endpoint.includes('/auth/login')) {
-    try {
-      const refreshResponse = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/api/v1/auth/refresh`, {
-        method: 'POST',
-        headers: { 'X-Api-Key': getApiKey() },
-        credentials: 'include'
-      });
-      if (refreshResponse.ok) {
-        // Retry original request
+    if (isRefreshing) {
+      // Wait for ongoing refresh
+      const success = await new Promise<boolean>(resolve => addRefreshSubscriber(resolve));
+      if (success) {
         response = await fetch(url, config);
       }
-    } catch (e) {
-      // Ignore refresh errors and let the original 401 fall through
+    } else {
+      isRefreshing = true;
+      try {
+        const refreshResponse = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/api/v1/auth/refresh`, {
+          method: 'POST',
+          headers: { 'X-Api-Key': getApiKey() },
+          credentials: 'include'
+        });
+        const success = refreshResponse.ok;
+        isRefreshing = false;
+        onRefreshed(success);
+        
+        if (success) {
+          // Retry original request
+          response = await fetch(url, config);
+        }
+      } catch (e) {
+        isRefreshing = false;
+        onRefreshed(false);
+      }
     }
   }
   
@@ -87,7 +125,7 @@ async function request<T = any>(
 
   if (!response.ok) {
     const errorMsg = json.detail || json.error?.message || json.message || `Request failed with status ${response.status}`;
-    throw new Error(errorMsg);
+    throw new ApiError(response.status, errorMsg, json);
   }
 
   return json as ApiResponse<T>;

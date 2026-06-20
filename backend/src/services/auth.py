@@ -61,6 +61,25 @@ class AuthService:
         self.background_tasks = background_tasks
         self.tenant_id = user_repo.tenant_id
 
+    async def _issue_tokens(self, user: User, session: Session, family_id: str | None = None, expires_at: datetime | None = None) -> tuple[str, str]:
+        raw_refresh = generate_opaque_token()
+        refresh_hash = hash_opaque_token(raw_refresh)
+        
+        await self.token_repo.create(
+            session_id=session.id,
+            token_hash=refresh_hash,
+            family_id=family_id or str(uuid.uuid4()),
+            expires_at=expires_at or session.expires_at
+        )
+
+        access_token = create_access_token(
+            subject=user.id,
+            tenant_id=self.tenant_id,
+            role=user.role,
+            session_id=session.id
+        )
+        return access_token, raw_refresh
+
     async def _check_ip_anomaly(
         self,
         user_id: uuid.UUID,
@@ -86,7 +105,7 @@ class AuthService:
                 
         # If we have past countries, and current country is not in that list
         if past_countries and current_country not in past_countries:
-            await self.audit_repo.create(
+            self.audit_repo.create_background(self.background_tasks,
                 action="suspicious_login_location",
                 user_id=user_id,
                 ip_address=current_ip,
@@ -166,7 +185,7 @@ class AuthService:
         )
 
         # 3. Write Audit Log
-        await self.audit_repo.create(
+        self.audit_repo.create_background(self.background_tasks,
             action="user_registered",
             user_id=user.id,
             metadata_json={"email": email.lower().strip(), "role": role}
@@ -190,7 +209,7 @@ class AuthService:
         user = await self.user_repo.get_by_email(email)
         if not user or not user.password_hash or not await verify_password(password, user.password_hash):
             LOGIN_COUNTER.labels(status="failed", tenant_id=str(self.tenant_id)).inc()
-            await self.audit_repo.create(
+            self.audit_repo.create_background(self.background_tasks,
                 action="login_failed",
                 ip_address=ip_address,
                 user_agent=user_agent,
@@ -202,7 +221,7 @@ class AuthService:
         # 2. Verify active status
         if not user.is_active:
             LOGIN_COUNTER.labels(status="failed", tenant_id=str(self.tenant_id)).inc()
-            await self.audit_repo.create(
+            self.audit_repo.create_background(self.background_tasks,
                 action="login_failed",
                 user_id=user.id,
                 ip_address=ip_address,
@@ -215,7 +234,7 @@ class AuthService:
         # Check if 2FA is enabled
         if user.is_two_factor_enabled:
             mfa_token = create_mfa_token(user.id, self.tenant_id)
-            await self.audit_repo.create(
+            self.audit_repo.create_background(self.background_tasks,
                 action="2fa_challenge_issued",
                 user_id=user.id,
                 ip_address=ip_address,
@@ -236,31 +255,15 @@ class AuthService:
             user_agent=user_agent,
             device_fingerprint=fingerprint
         )
+        if ip_address:
+            self.session_repo.enrich_geoip_background(self.background_tasks, session.id, ip_address)
 
-        # 4. Generate & Store Refresh Token (SHA-256 hashed)
-        raw_refresh = generate_opaque_token()
-        refresh_hash = hash_opaque_token(raw_refresh)
-        family_id = str(uuid.uuid4())
-        
-        await self.token_repo.create(
-            session_id=session.id,
-            token_hash=refresh_hash,
-            family_id=family_id,
-            expires_at=session_expiry
-        )
-
-        # 5. Generate Access Token (JWT)
-        access_token = create_access_token(
-            subject=user.id,
-            tenant_id=self.tenant_id,
-            role=user.role,
-            session_id=session.id
-        )
+        access_token, raw_refresh = await self._issue_tokens(user, session)
 
         # 6. Audit Log
         LOGIN_COUNTER.labels(status="success", tenant_id=str(self.tenant_id)).inc()
         ACTIVE_SESSIONS.labels(tenant_id=str(self.tenant_id)).inc()
-        await self.audit_repo.create(
+        self.audit_repo.create_background(self.background_tasks,
             action="login_success",
             user_id=user.id,
             ip_address=ip_address,
@@ -304,7 +307,7 @@ class AuthService:
         
         if not is_verified:
             LOGIN_COUNTER.labels(status="failed", tenant_id=str(self.tenant_id)).inc()
-            await self.audit_repo.create(
+            self.audit_repo.create_background(self.background_tasks,
                 action="login_failed",
                 user_id=user.id,
                 ip_address=ip_address,
@@ -326,31 +329,15 @@ class AuthService:
             user_agent=user_agent,
             device_fingerprint=fingerprint
         )
+        if ip_address:
+            self.session_repo.enrich_geoip_background(self.background_tasks, session.id, ip_address)
 
-        # 4. Generate & Store Refresh Token (SHA-256 hashed)
-        raw_refresh = generate_opaque_token()
-        refresh_hash = hash_opaque_token(raw_refresh)
-        family_id = str(uuid.uuid4())
-        
-        await self.token_repo.create(
-            session_id=session.id,
-            token_hash=refresh_hash,
-            family_id=family_id,
-            expires_at=session_expiry
-        )
-
-        # 5. Generate Access Token (JWT)
-        access_token = create_access_token(
-            subject=user.id,
-            tenant_id=self.tenant_id,
-            role=user.role,
-            session_id=session.id
-        )
+        access_token, raw_refresh = await self._issue_tokens(user, session)
 
         # 6. Audit Log
         LOGIN_COUNTER.labels(status="success", tenant_id=str(self.tenant_id)).inc()
         ACTIVE_SESSIONS.labels(tenant_id=str(self.tenant_id)).inc()
-        await self.audit_repo.create(
+        self.audit_repo.create_background(self.background_tasks,
             action="login_success",
             user_id=user.id,
             ip_address=ip_address,
@@ -381,7 +368,7 @@ class AuthService:
         token = await self.token_repo.get_by_hash(token_hash)
         if not token:
             REFRESH_COUNTER.labels(status="failed").inc()
-            await self.audit_repo.create(
+            self.audit_repo.create_background(self.background_tasks,
                 action="refresh_token_not_found",
                 ip_address=ip_address,
                 user_agent=user_agent,
@@ -406,7 +393,7 @@ class AuthService:
             await self.session_repo.revoke(session.id)
             
             # Log critical security audit event
-            await self.audit_repo.create(
+            self.audit_repo.create_background(self.background_tasks,
                 action="refresh_reuse_attack",
                 user_id=session.user_id,
                 ip_address=ip_address,
@@ -441,33 +428,22 @@ class AuthService:
         token.is_revoked = True
         await self.token_repo.revoke(token.id)
 
-        # 6. Issue new Refresh Token (Same family)
-        new_raw_refresh = generate_opaque_token()
-        new_refresh_hash = hash_opaque_token(new_raw_refresh)
-        
-        await self.token_repo.create(
-            session_id=session.id,
-            token_hash=new_refresh_hash,
-            family_id=token.family_id,
-            expires_at=token.expires_at # Keep same expiry as original token/session
-        )
-
-        # 7. Fetch user to retrieve current role
+        # 6. Fetch user to retrieve current role
         user = await self.user_repo.get_by_id(session.user_id)
         if not user or not user.is_active:
             raise ValueError("User is inactive or not found")
 
-        # 8. Issue new Access Token (JWT)
-        new_access_token = create_access_token(
-            subject=user.id,
-            tenant_id=self.tenant_id,
-            role=user.role,
-            session_id=session.id
+        # 7. Issue new tokens
+        new_access_token, new_raw_refresh = await self._issue_tokens(
+            user=user, 
+            session=session, 
+            family_id=token.family_id, 
+            expires_at=token.expires_at
         )
 
         # 9. Audit Log
         REFRESH_COUNTER.labels(status="success").inc()
-        await self.audit_repo.create(
+        self.audit_repo.create_background(self.background_tasks,
             action="token_refreshed",
             user_id=user.id,
             ip_address=ip_address,
@@ -510,7 +486,7 @@ class AuthService:
             .values(is_revoked=True)
         )
 
-        await self.audit_repo.create(
+        self.audit_repo.create_background(self.background_tasks,
             action="user_logged_out",
             user_id=user_id,
             metadata_json={"session_id": str(session.id)}
@@ -536,7 +512,7 @@ class AuthService:
             .values(is_revoked=True)
         )
 
-        await self.audit_repo.create(
+        self.audit_repo.create_background(self.background_tasks,
             action="user_logged_out_all_devices",
             user_id=user_id
         )
@@ -585,7 +561,7 @@ class AuthService:
         # Delete token after successful use
         await self.verification_token_repo.delete_token(v_token.id)
         
-        await self.audit_repo.create(
+        self.audit_repo.create_background(self.background_tasks,
             action="email_verified",
             user_id=user.id
         )
@@ -636,7 +612,7 @@ class AuthService:
         # Delete token after successful use
         await self.verification_token_repo.delete_token(v_token.id)
         
-        await self.audit_repo.create(
+        self.audit_repo.create_background(self.background_tasks,
             action="password_reset_success",
             user_id=user.id
         )
@@ -673,7 +649,7 @@ class AuthService:
             .values(is_revoked=True)
         )
 
-        await self.audit_repo.create(
+        self.audit_repo.create_background(self.background_tasks,
             action="specific_session_revoked",
             user_id=user_id,
             metadata_json={"revoked_session_id": str(session.id)}
