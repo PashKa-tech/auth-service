@@ -6,7 +6,7 @@ import uuid
 from typing import List, Optional, Dict, Any
 
 from src.database import get_db
-from src.api.deps import resolve_tenant_api_key
+from src.api.deps import resolve_tenant
 from src.models.user import User
 from src.core.security import hash_password
 
@@ -65,7 +65,7 @@ def serialize_scim_user(user: User) -> dict:
 async def list_users(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant_api_key) # SCIM must be authenticated via M2M or API Key
+    tenant_id: uuid.UUID = Depends(resolve_tenant) # SCIM must be authenticated via M2M or API Key
 ):
     """SCIM: List Users"""
     # Simple implementation: SCIM requires pagination and filtering (startIndex, count, filter)
@@ -87,7 +87,7 @@ async def list_users(
 async def get_user(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant_api_key)
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """SCIM: Get User by ID"""
     res = await db.execute(select(User).where(User.id == user_id, User.tenant_id == tenant_id))
@@ -102,7 +102,7 @@ async def get_user(
 async def create_user(
     body: SCIMUserCreate,
     db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant_api_key)
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """SCIM: Provision a new User"""
     email = body.userName.lower()
@@ -133,7 +133,7 @@ async def update_user(
     user_id: uuid.UUID,
     body: SCIMUserUpdate,
     db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant_api_key)
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """SCIM: Update User attributes"""
     res = await db.execute(select(User).where(User.id == user_id, User.tenant_id == tenant_id))
@@ -157,7 +157,7 @@ async def update_user(
 async def delete_user(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant_api_key)
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """SCIM: Delete / Deprovision User"""
     res = await db.execute(select(User).where(User.id == user_id, User.tenant_id == tenant_id))

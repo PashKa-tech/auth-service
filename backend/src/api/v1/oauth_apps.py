@@ -9,7 +9,7 @@ import secrets
 from src.database import get_db
 from src.api.deps import resolve_tenant, RoleChecker
 from src.models.user import User
-from src.models.oauth import OAuthApplication
+from src.models.m2m import OAuthApplication
 from src.schemas.common import UnifiedResponse
 
 router = APIRouter()

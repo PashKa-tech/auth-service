@@ -11,10 +11,7 @@ from pydantic import BaseModel
 
 router = APIRouter()
 
-class UnifiedResponse(BaseModel):
-    success: bool
-    data: dict | list | None = None
-    message: str | None = None
+from src.schemas.common import UnifiedResponse
 
 class CreateApiKeyRequest(BaseModel):
     name: str

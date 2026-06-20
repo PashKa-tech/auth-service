@@ -7,10 +7,10 @@ import secrets
 import json
 
 from src.database import get_db
-from src.api.deps import resolve_tenant
+from src.api.deps import resolve_tenant, get_auth_service
 from src.models.user import User
 from src.core.redis import init_redis as get_redis
-from src.core.auth import create_tokens
+from src.services.auth import AuthService
 from src.schemas.common import UnifiedResponse
 from src.core.logging import logger
 
@@ -70,7 +70,9 @@ async def start_passwordless(
 @router.post("/verify", response_model=UnifiedResponse)
 async def verify_passwordless(
     body: MagicLinkVerifyRequest,
-    db: AsyncSession = Depends(get_db)
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service)
 ):
     """Verifies a magic link token and returns session tokens."""
     redis = await get_redis()
@@ -104,5 +106,10 @@ async def verify_passwordless(
             detail="Account is locked or inactive."
         )
         
-    tokens = create_tokens(user)
+    
+    from src.api.v1.auth import get_client_ip
+    user_agent = request.headers.get("User-Agent")
+    client_ip = get_client_ip(request)
+    
+    tokens = await auth_service.login_user(user, user_agent, client_ip)
     return UnifiedResponse(success=True, data=tokens, message="Successfully authenticated via magic link.")

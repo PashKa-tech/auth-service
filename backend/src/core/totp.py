@@ -22,7 +22,7 @@ try:
 except Exception as e:
     if settings.ENV == "production":
         raise RuntimeError(f"Invalid TOTP_ENCRYPTION_KEY format in production: {str(e)}")
-    logger.error("Invalid TOTP_ENCRYPTION_KEY format. Generating a fallback key.", error=str(e))
+    logger.error(f"Invalid TOTP_ENCRYPTION_KEY format. Generating a fallback key. Error: {str(e)}")
     fernet = Fernet(Fernet.generate_key())
 
 def encrypt_secret(secret: str) -> str:
