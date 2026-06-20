@@ -17,6 +17,7 @@ class Tenant(Base):
     logo_url: Mapped[str | None] = mapped_column(String(2048))
     primary_color: Mapped[str] = mapped_column(String(7), default="#000000")
     font_family: Mapped[str] = mapped_column(String(100), default="Inter, sans-serif")
+    pre_login_webhook_url: Mapped[str | None] = mapped_column(String(2048))
     rate_limit_rpm: Mapped[int] = mapped_column(Integer, default=1000)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

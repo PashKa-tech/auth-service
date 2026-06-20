@@ -40,7 +40,8 @@ def create_access_token(
     tenant_id: uuid.UUID,
     role: str,
     session_id: uuid.UUID,
-    expires_delta: timedelta | None = None
+    expires_delta: timedelta | None = None,
+    custom_claims: dict | None = None
 ) -> str:
     """Generate a short-lived JWT Access Token."""
     now = datetime.now(timezone.utc)
@@ -59,15 +60,25 @@ def create_access_token(
         "exp": int(expire.timestamp()),
     }
     
-    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    if custom_claims:
+        payload.update(custom_claims)
+    
+    from src.core.keys import get_rsa_keys
+    private_key, _, _ = get_rsa_keys()
+    
+    # We serialize the key or pass the object directly. PyJWT supports cryptography objects.
+    return jwt.encode(payload, private_key, algorithm="RS256", headers={"kid": "auth-service-key-1"})
 
 def verify_access_token(token: str) -> dict | None:
     """Verify and decode a JWT Access Token."""
     try:
+        from src.core.keys import get_rsa_keys
+        _, public_key, _ = get_rsa_keys()
+        
         payload = jwt.decode(
             token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
+            public_key,
+            algorithms=["RS256"],
             issuer=settings.APP_NAME
         )
         if payload.get("type"):

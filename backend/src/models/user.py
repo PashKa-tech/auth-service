@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, UniqueConstraint, func, CheckConstraint, Index, text
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, UniqueConstraint, func, CheckConstraint, Index, text, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from src.database import Base
 
@@ -26,6 +26,8 @@ class User(Base):
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     totp_secret_encrypted: Mapped[str | None] = mapped_column(String(255))
     is_two_factor_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

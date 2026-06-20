@@ -22,6 +22,7 @@ from src.api.v1.organizations import router as organizations_router
 from src.api.v1.metrics import router as metrics_router
 from src.api.v1.rbac import router as rbac_router
 from src.api.v1.saml import router as saml_router
+from src.api.v1.oidc import router as oidc_router
 from src.middlewares.rbac import RBACMiddleware
 
 limiter = Limiter(key_func=get_remote_address)
@@ -185,3 +186,4 @@ app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(organizations_router, prefix=settings.API_V1_STR + "/organizations", tags=["organizations"])
 app.include_router(rbac_router, prefix=settings.API_V1_STR + "/rbac", tags=["rbac"])
 app.include_router(saml_router, prefix=settings.API_V1_STR + "/auth", tags=["saml"])
+app.include_router(oidc_router, tags=["oidc"])

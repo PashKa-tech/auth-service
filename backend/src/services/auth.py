@@ -72,11 +72,42 @@ class AuthService:
             expires_at=expires_at or session.expires_at
         )
 
+        # Execute pre-login webhook if configured
+        from sqlalchemy import select
+        from src.models.tenant import Tenant
+        import httpx
+        
+        res = await self.user_repo.session.execute(select(Tenant.pre_login_webhook_url).where(Tenant.id == self.tenant_id))
+        webhook_url = res.scalar_one_or_none()
+        
+        custom_claims = None
+        if webhook_url:
+            try:
+                # We execute it synchronously but without blocking the async event loop using httpx.AsyncClient
+                async with httpx.AsyncClient(timeout=3.0) as client:
+                    webhook_resp = await client.post(
+                        webhook_url,
+                        json={
+                            "user": {"id": str(user.id), "email": user.email, "role": user.role},
+                            "session": {"id": str(session.id)}
+                        }
+                    )
+                    if webhook_resp.status_code == 200:
+                        data = webhook_resp.json()
+                        if data.get("action") == "deny":
+                            raise ValueError(data.get("reason", "Access denied by pre-login webhook"))
+                        custom_claims = data.get("custom_claims", {})
+            except httpx.RequestError as e:
+                logger.warning(f"Pre-login webhook failed for tenant {self.tenant_id}: {e}")
+                # We fail open if webhook is down, or we could fail closed. Auth0 allows configuration.
+                # Here we fail open.
+
         access_token = create_access_token(
             subject=user.id,
             tenant_id=self.tenant_id,
             role=user.role,
-            session_id=session.id
+            session_id=session.id,
+            custom_claims=custom_claims
         )
         return access_token, raw_refresh
 
@@ -207,7 +238,18 @@ class AuthService:
 
         # 1. Fetch user
         user = await self.user_repo.get_by_email(email)
+        
+        # Check if locked out
+        if user and user.locked_until and user.locked_until > datetime.now(timezone.utc).replace(tzinfo=None):
+            raise ValueError("Account is temporarily locked due to multiple failed login attempts. Please try again later or reset your password.")
+            
         if not user or not user.password_hash or not await verify_password(password, user.password_hash):
+            if user:
+                user.failed_login_attempts += 1
+                if user.failed_login_attempts >= 5:
+                    user.locked_until = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=15)
+                await self.user_repo.session.commit()
+                
             LOGIN_COUNTER.labels(status="failed", tenant_id=str(self.tenant_id)).inc()
             self.audit_repo.create_background(self.background_tasks,
                 action="login_failed",
@@ -230,6 +272,12 @@ class AuthService:
                 metadata_json={"reason": "account_deactivated"}
             )
             raise ValueError("Account is deactivated")
+            
+        # Reset failed attempts on successful login
+        if user.failed_login_attempts > 0:
+            user.failed_login_attempts = 0
+            user.locked_until = None
+            await self.user_repo.session.commit()
 
         # Check if 2FA is enabled
         if user.is_two_factor_enabled:
