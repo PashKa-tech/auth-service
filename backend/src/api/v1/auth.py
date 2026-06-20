@@ -324,7 +324,11 @@ async def list_sessions(
         {
             "id": str(s.id),
             "ip_address": s.ip_address,
+            "location": s.location,
             "user_agent": s.user_agent,
+            "os_info": s.os_info,
+            "browser_info": s.browser_info,
+            "device_type": s.device_type,
             "created_at": s.created_at.isoformat() + "Z",
             "expires_at": s.expires_at.isoformat() + "Z"
         }

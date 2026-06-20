@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Smartphone, Trash2, Link2, Unlink, CheckCircle, AlertCircle, RefreshCw, Layers, Key, History, Activity } from 'lucide-react';
+import { Shield, Smartphone, Trash2, Link2, Unlink, CheckCircle, AlertCircle, RefreshCw, Layers, Key, History, Activity, Monitor, Laptop, MapPin, Server } from 'lucide-react';
 import { api, API_BASE_URL } from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion } from 'framer-motion';
@@ -530,40 +530,69 @@ export const Profile: React.FC = () => {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {sessions.map((sess) => (
-                <div
-                  key={sess.id}
-                  style={{
-                    padding: '1rem',
-                    background: 'transparent',
-                    border: '1px solid var(--border-glass)',
-                  }}
-                >
-                  <div className="flex justify-between align-center" style={{ marginBottom: '0.25rem' }}>
-                    <span style={{ fontWeight: 500, fontSize: '0.95rem' }}>
-                      {sess.ip_address}
-                    </span>
-                    <span className="badge badge-purple" style={{ fontSize: '0.65rem' }}>
-                      {sess.id.substring(0, 8)}...
-                    </span>
-                  </div>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    Device: {sess.user_agent}
-                  </p>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                    Created: {new Date(sess.created_at).toLocaleString()}
-                  </p>
-                  <button
-                    onClick={() => handleRevokeSession(sess.id)}
-                    className="btn btn-secondary"
-                    style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', marginTop: '0.5rem', width: '100%', borderColor: 'rgba(239, 68, 68, 0.3)', color: 'var(--text-primary)' }}
-                    disabled={actionLoading === `revoke-${sess.id}`}
+              {sessions.map((sess) => {
+                let DeviceIcon = Monitor;
+                if (sess.device_type === 'Mobile') DeviceIcon = Smartphone;
+                else if (sess.device_type === 'Tablet') DeviceIcon = Smartphone;
+                else if (sess.device_type === 'PC') DeviceIcon = Laptop;
+                else if (sess.device_type === 'Bot') DeviceIcon = Server;
+
+                return (
+                  <div
+                    key={sess.id}
+                    style={{
+                      padding: '1rem',
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid var(--border-glass)',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.75rem'
+                    }}
                   >
-                    <Trash2 size={12} style={{ display: 'inline', marginRight: '4px' }} /> 
-                    {actionLoading === `revoke-${sess.id}` ? 'Revoking...' : 'Revoke Session'}
-                  </button>
-                </div>
-              ))}
+                    <div className="flex justify-between align-center">
+                      <div className="flex align-center gap-sm">
+                        <DeviceIcon size={18} style={{ color: 'var(--primary-color)' }} />
+                        <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>
+                          {sess.os_info || 'Unknown Device'}
+                        </span>
+                      </div>
+                      <span className="badge badge-purple" style={{ fontSize: '0.65rem' }}>
+                        {sess.id.substring(0, 8)}...
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', paddingLeft: '24px' }}>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        <span style={{ fontWeight: 500 }}>{sess.browser_info || sess.user_agent || 'Unknown Browser'}</span>
+                      </p>
+                      <div style={{ display: 'flex', gap: '1rem', marginTop: '0.25rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          <Activity size={12} /> {sess.ip_address}
+                        </div>
+                        {sess.location && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            <MapPin size={12} /> {sess.location}
+                          </div>
+                        )}
+                      </div>
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                        Active since: {new Date(sess.created_at).toLocaleString()}
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => handleRevokeSession(sess.id)}
+                      className="btn btn-secondary"
+                      style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', marginTop: '0.25rem', width: '100%', borderColor: 'rgba(239, 68, 68, 0.3)', color: 'var(--text-primary)', transition: 'all 0.2s' }}
+                      disabled={actionLoading === `revoke-${sess.id}`}
+                    >
+                      <Trash2 size={14} style={{ display: 'inline', marginRight: '6px', color: 'var(--danger-color)' }} /> 
+                      {actionLoading === `revoke-${sess.id}` ? 'Revoking...' : 'Revoke Session'}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </motion.div>
 
