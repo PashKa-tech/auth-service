@@ -107,7 +107,7 @@ async def verify_passwordless(
         )
         
     
-    from src.api.v1.auth import get_client_ip
+    from src.api.v1.auth_utils import get_client_ip
     user_agent = request.headers.get("User-Agent")
     client_ip = get_client_ip(request)
     

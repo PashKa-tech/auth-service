@@ -194,7 +194,7 @@ async def disable_2fa(
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many attempts. Try again later.")
 
     try:
-        success = await two_factor_service.disable_2fa(current_user, auth_service, body.password, body.totp_code)
+        success = await two_factor_service.disable_2fa(current_user, body.password, body.totp_code)
         if not success:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Verification failed")
         return UnifiedResponse(success=True, data={"message": "Two-factor authentication disabled"})

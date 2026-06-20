@@ -118,6 +118,19 @@ def mock_pwned_password(monkeypatch):
         return False
     monkeypatch.setattr(security, "check_pwned_password", mock_check)
 
+@pytest.fixture(autouse=True)
+def mock_async_session_factory(monkeypatch):
+    """Automatically mock async_session_factory to use TestSessionLocal to prevent database locked errors."""
+    from src.repositories import audit
+    import contextlib
+    
+    @contextlib.asynccontextmanager
+    async def mock_factory():
+        async with TestSessionLocal() as session:
+            yield session
+            
+    monkeypatch.setattr(audit, "async_session_factory", mock_factory)
+
 @pytest.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
     """Provide an HTTPX async client to test endpoints."""

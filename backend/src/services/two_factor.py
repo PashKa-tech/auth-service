@@ -154,10 +154,14 @@ class TwoFactorService:
         )
         return raw_backup_codes
 
-    async def disable_2fa(self, user: User) -> None:
+    async def disable_2fa(self, user: User, password: str, totp_code: str | None = None) -> bool:
         """Disable 2FA and clear all 2FA parameters."""
         if user.tenant_id != self.user_repo.tenant_id:
             raise ValueError("Cross-tenant 2FA disable attempt blocked.")
+
+        from src.core.security import verify_password
+        if not await verify_password(password, user.password_hash):
+            return False
 
         user.is_two_factor_enabled = False
         user.totp_secret_encrypted = None
@@ -182,4 +186,4 @@ class TwoFactorService:
             </div>
             """
         )
-        
+        return True
