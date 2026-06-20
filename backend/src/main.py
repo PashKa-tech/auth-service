@@ -26,6 +26,8 @@ from src.api.v1.oidc import router as oidc_router
 from src.api.v1.oauth_apps import router as oauth_apps_router
 from src.api.v1.webhooks import router as webhooks_router
 from src.api.v1.passwordless import router as passwordless_router
+from src.api.v1.scim import router as scim_router
+from src.api.v1.actions import router as actions_router
 from src.middlewares.rbac import RBACMiddleware
 
 limiter = Limiter(key_func=get_remote_address)
@@ -194,3 +196,9 @@ app.include_router(oidc_router, tags=["oidc"])
 app.include_router(oauth_apps_router, prefix=settings.API_V1_STR + "/organizations/oauth-apps", tags=["oauth-apps"])
 app.include_router(saml_connections_router, prefix=settings.API_V1_STR + "/organizations/saml-connections", tags=["saml-connections"])
 app.include_router(webhooks_router, prefix=settings.API_V1_STR + "/organizations/webhooks", tags=["webhooks"])
+app.include_router(scim_router, prefix=settings.API_V1_STR + "/scim/v2", tags=["scim"])
+app.include_router(actions_router, prefix=settings.API_V1_STR + "/organizations/actions", tags=["actions"])
+
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "auth-service"}

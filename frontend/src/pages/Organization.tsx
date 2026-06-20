@@ -7,9 +7,10 @@ import { OAuthAppsList } from '../components/settings/OAuthAppsList';
 import { SAMLSettings } from '../components/settings/SAMLSettings';
 import { WebhookSettings } from '../components/settings/WebhookSettings';
 import { RBACSettings } from '../components/settings/RBACSettings';
+import { ActionsSettings } from '../components/settings/ActionsSettings';
 
 export const Organization: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'api' | 'team' | 'branding' | 'oauth_apps' | 'saml' | 'webhooks' | 'roles'>('branding');
+  const [activeTab, setActiveTab] = useState<'api' | 'team' | 'branding' | 'oauth_apps' | 'saml' | 'webhooks' | 'roles' | 'actions'>('branding');
   const [org, setOrg] = useState<any>(null);
   const [apiKeys, setApiKeys] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
@@ -259,6 +260,17 @@ export const Organization: React.FC = () => {
           Roles
         </button>
         <button
+          onClick={() => setActiveTab('actions')}
+          className="btn"
+          style={{
+            background: 'transparent', border: 'none', borderRadius: '0', fontWeight: 500,
+            borderBottom: activeTab === 'actions' ? '2px solid var(--primary-color)' : '2px solid transparent',
+            color: activeTab === 'actions' ? 'var(--text-primary)' : 'var(--text-secondary)'
+          }}
+        >
+          Actions
+        </button>
+        <button
           onClick={() => setActiveTab('api')}
           className="btn"
           style={{
@@ -287,6 +299,7 @@ export const Organization: React.FC = () => {
       {activeTab === 'saml' && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><SAMLSettings /></motion.div>}
       {activeTab === 'webhooks' && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><WebhookSettings /></motion.div>}
       {activeTab === 'roles' && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><RBACSettings /></motion.div>}
+      {activeTab === 'actions' && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}><ActionsSettings /></motion.div>}
 
       {/* API Keys Tab */}
       {activeTab === 'api' && (

@@ -99,8 +99,25 @@ class AuthService:
                         custom_claims = data.get("custom_claims", {})
             except httpx.RequestError as e:
                 logger.warning(f"Pre-login webhook failed for tenant {self.tenant_id}: {e}")
-                # We fail open if webhook is down, or we could fail closed. Auth0 allows configuration.
-                # Here we fail open.
+                # We fail open if webhook is down.
+
+        # Execute Post-Login JS Actions
+        try:
+            from src.services.actions import ActionsService
+            actions_service = ActionsService(self.user_repo.session)
+            request_info = {"ip": session.ip_address, "userAgent": session.user_agent}
+            action_result = await actions_service.execute_post_login_actions(self.tenant_id, user, request_info)
+            if action_result:
+                # Merge custom claims from Actions
+                if custom_claims is None:
+                    custom_claims = {}
+                id_token_claims = action_result.get("idToken", {}).get("customClaims", {})
+                access_token_claims = action_result.get("accessToken", {}).get("customClaims", {})
+                custom_claims.update(id_token_claims)
+                custom_claims.update(access_token_claims)
+        except Exception as e:
+            logger.error(f"Post-login action error: {e}")
+            raise ValueError(str(e)) # We fail closed on action explicit denies
 
         access_token = create_access_token(
             subject=user.id,

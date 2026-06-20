@@ -33,3 +33,4 @@ asyncpg>=0.29.0
 psycopg2-binary>=2.9.9
 user-agents>=2.2.0
 python3-saml==1.16.0
+mini-racer==0.12.4
