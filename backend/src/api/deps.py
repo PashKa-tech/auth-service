@@ -168,36 +168,28 @@ async def resolve_tenant(
     6. MFA token (/2fa/verify)
     7. OAuth state (/oauth/.../callback)
     """
-    tenant_id = await _resolve_from_token(request)
+    tenant_param = request.query_params.get("tenant_id")
     
-    if not tenant_id:
-        tenant_id = await _resolve_from_refresh_token(request, db)
-        
-    if not tenant_id:
-        tenant_id = await _resolve_from_api_key(db, x_api_key)
-        
-    if not tenant_id:
-        tenant_param = request.query_params.get("tenant_id")
-        tenant_id = await _resolve_from_tenant_id_header_or_param(db, x_tenant_id, tenant_param)
-        
-    if not tenant_id:
-        tenant_id = await _resolve_from_verification_token(request, db)
-        
-    if not tenant_id:
-        tenant_id = await _resolve_from_mfa_token(request)
-        
-    if not tenant_id:
-        tenant_id = await _resolve_from_oauth_state(request)
+    resolvers = [
+        lambda: _resolve_from_token(request),
+        lambda: _resolve_from_refresh_token(request, db),
+        lambda: _resolve_from_api_key(db, x_api_key),
+        lambda: _resolve_from_tenant_id_header_or_param(db, x_tenant_id, tenant_param),
+        lambda: _resolve_from_verification_token(request, db),
+        lambda: _resolve_from_mfa_token(request),
+        lambda: _resolve_from_oauth_state(request),
+    ]
+    
+    for resolver in resolvers:
+        tenant_id = await resolver()
+        if tenant_id:
+            set_tenant_id(tenant_id)
+            return tenant_id
 
-    if not tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not resolve tenant context. Provide X-Api-Key, X-Tenant-ID or a valid token."
-        )
-
-    # Set contextvar for structured logging and repositories
-    set_tenant_id(tenant_id)
-    return tenant_id
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not resolve tenant context. Provide X-Api-Key, X-Tenant-ID or a valid token."
+    )
 
 
 # Instantiations of Scoped Repositories

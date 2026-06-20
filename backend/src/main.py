@@ -6,10 +6,6 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
 from src.config import settings
 from src.core.logging import setup_logging, logger
 from src.core.context import set_request_id, get_request_id, set_tenant_id
@@ -28,9 +24,8 @@ from src.api.v1.webhooks import router as webhooks_router
 from src.api.v1.passwordless import router as passwordless_router
 from src.api.v1.scim import router as scim_router
 from src.api.v1.actions import router as actions_router
+from src.api.v1.saml_connections import router as saml_connections_router
 from src.middlewares.rbac import RBACMiddleware
-
-limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -52,10 +47,6 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
-
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

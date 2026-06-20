@@ -73,11 +73,7 @@ class WebAuthnLoginCompleteRequest(BaseModel):
     email: EmailStr
     response: dict
 
-class UnifiedResponse(BaseModel):
-    success: bool
-    data: Any | None = None
-    error: Any | None = None
-    meta: dict = Field(default_factory=lambda: {"version": "v1", "request_id": get_request_id()})
+from src.schemas.common import UnifiedResponse
 
 
 # --- Helper Functions ---
@@ -97,12 +93,13 @@ def is_mobile_client(request: Request) -> bool:
 
 def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
     """Set secure httpOnly cookies for browser clients."""
+    is_prod = settings.ENV == "production"
     # Access Token: httpOnly, Secure (in prod), SameSite=Lax, TTL ~ 15m
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=False,  # Set True in Production (requires HTTPS)
+        secure=is_prod,
         samesite="lax",
         max_age=15 * 60, # 15 minutes
     )
@@ -111,7 +108,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=False,  # Set True in Production
+        secure=is_prod,
         samesite="strict",
         max_age=7 * 24 * 60 * 60, # 7 days
     )
@@ -433,7 +430,7 @@ async def oauth_login(
             key="oauth_state_csrf",
             value=internal_state,
             httponly=True,
-            secure=False,  # Set True in Production
+            secure=(settings.ENV == "production"),
             samesite="lax",
             max_age=600 # 10 minutes
         )
