@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, UniqueConstraint, func, CheckConstraint
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, UniqueConstraint, func, CheckConstraint, Index, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from src.database import Base
 
@@ -30,7 +30,7 @@ class User(Base):
 
     # Unique email per tenant
     __table_args__ = (
-        UniqueConstraint("tenant_id", "email", name="uq_user_tenant_email"),
+        Index("uq_user_tenant_email_lower", "tenant_id", text("lower(email)"), unique=True),
         CheckConstraint("role IN ('user', 'admin', 'manager')", name="chk_user_role"),
     )
 

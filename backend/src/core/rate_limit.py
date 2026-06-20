@@ -5,6 +5,8 @@ import uuid
 
 # Forward declaration for dependency, imported locally to avoid circular imports
 # from src.api.deps import resolve_tenant
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.database import get_db
 
 async def is_rate_limited(key: str, limit: int, window_seconds: int = 60) -> bool:
     """
@@ -49,13 +51,27 @@ class RateLimiter:
         self.by_ip = by_ip
         self.by_user = by_user
 
-    async def __call__(self, request: Request):
+    async def __call__(self, request: Request, db: AsyncSession = Depends(get_db)):
         from src.core.context import get_tenant_id
+        from src.models.tenant import Tenant
+        from sqlalchemy import select
         try:
             tenant_id_val = get_tenant_id()
             tenant_id = str(tenant_id_val) if tenant_id_val else "global"
         except Exception:
+            tenant_id_val = None
             tenant_id = "global"
+            
+        limit = self.limit
+        if tenant_id_val:
+            try:
+                stmt = select(Tenant.rate_limit_rpm).where(Tenant.id == tenant_id_val)
+                result = await db.execute(stmt)
+                tenant_limit = result.scalar_one_or_none()
+                if tenant_limit is not None:
+                    limit = tenant_limit
+            except Exception as e:
+                logger.error(f"Failed to fetch tenant rate limit for {tenant_id_val}: {str(e)}")
         
         key_parts = [self.key_prefix, str(tenant_id)]
         
@@ -74,7 +90,7 @@ class RateLimiter:
             
         key = ":".join(key_parts)
         
-        if await is_rate_limited(key, self.limit, self.window_seconds):
+        if await is_rate_limited(key, limit, self.window_seconds):
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Rate limit exceeded. Try again later."

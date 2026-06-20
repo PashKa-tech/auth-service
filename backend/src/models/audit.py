@@ -20,12 +20,14 @@ class AuditLog(Base):
     user_agent: Mapped[str | None] = mapped_column(String(500))
     device_fingerprint: Mapped[str | None] = mapped_column(String(64))
     metadata_json: Mapped[dict | None] = mapped_column(JSON) # Maps to JSONB in PG, JSON text in SQLite
-    timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    # Note: timestamp is part of the primary key to support PostgreSQL partitioning
+    timestamp: Mapped[datetime] = mapped_column(DateTime, primary_key=True, server_default=func.now(), index=True)
 
     # Composite index for filtering logs by tenant and ordering by time
     __table_args__ = (
         Index("idx_audit_tenant_time", "tenant_id", "timestamp"),
         Index("idx_audit_user_time", "user_id", "timestamp"),
+        {"postgresql_partition_by": "RANGE (timestamp)"},
     )
 
     # Relationships

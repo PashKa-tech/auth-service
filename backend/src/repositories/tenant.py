@@ -72,7 +72,7 @@ class TenantRepository(BaseRepository):
         from src.models.tenant import OrganizationInvite
         invite = OrganizationInvite(
             tenant_id=tenant_id,
-            email=email,
+            email=email.lower().strip(),
             role=role,
             token_hash=token_hash,
             expires_at=expires_at

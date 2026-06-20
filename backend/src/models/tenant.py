@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
-from sqlalchemy import String, Integer, DateTime, ForeignKey, func, CheckConstraint
+from sqlalchemy import String, Integer, DateTime, ForeignKey, func, CheckConstraint, Index, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from src.database import Base
 
@@ -52,6 +52,7 @@ class OrganizationInvite(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)
 
     __table_args__ = (
+        Index("uq_invite_tenant_email_lower", "tenant_id", text("lower(email)"), unique=True),
         CheckConstraint("role IN ('user', 'admin', 'manager')", name="chk_invite_role"),
     )
 

@@ -15,6 +15,7 @@ from src.config import settings
 from src.core.logging import setup_logging, logger
 from src.core.context import set_request_id, get_request_id, set_tenant_id
 from src.core.redis import init_redis, close_redis
+from src.core.tasks import start_garbage_collector, stop_garbage_collector
 from src.core.metrics import REQUEST_LATENCY
 from src.api.v1.auth import router as auth_router
 from src.api.v1.health import router as health_router
@@ -29,9 +30,11 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Starting up Auth Service...")
     await init_redis()
+    start_garbage_collector()
     yield
     # Shutdown
     logger.info("Shutting down Auth Service...")
+    await stop_garbage_collector()
     await close_redis()
 
 app = FastAPI(

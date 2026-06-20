@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import select
+from sqlalchemy import select, func
 from src.models.user import User
 from src.repositories.base import TenantScopedRepository
 
@@ -24,7 +24,7 @@ class UserRepository(TenantScopedRepository):
 
     async def get_by_email(self, email: str) -> User | None:
         result = await self.db.execute(
-            select(User).where(User.email == email.lower().strip(), User.tenant_id == self.tenant_id)
+            select(User).where(func.lower(User.email) == email.lower().strip(), User.tenant_id == self.tenant_id)
         )
         return result.scalar_one_or_none()
 
