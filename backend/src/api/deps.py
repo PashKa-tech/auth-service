@@ -2,7 +2,7 @@ import uuid
 import hashlib
 from datetime import datetime, timezone
 from typing import AsyncGenerator
-from fastapi import Request, Depends, HTTPException, status
+from fastapi import Request, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import APIKeyHeader
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import settings
