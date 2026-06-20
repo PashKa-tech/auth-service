@@ -1,9 +1,12 @@
 import uuid
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
-from src.api.deps import get_current_user, get_tenant_service, RoleChecker, requires_fresh_auth
+from src.api.deps import get_current_user, get_tenant_service, RoleChecker, requires_fresh_auth, resolve_tenant
 from src.models.user import User
 from src.services.tenant import TenantService
+from src.database import get_db
+
+admin_only = RoleChecker(["admin", "superadmin"])
 from pydantic import BaseModel
 
 router = APIRouter()
