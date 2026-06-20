@@ -1,4 +1,4 @@
-// API client for Auth Service
+import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -22,18 +22,6 @@ export class ApiError extends Error {
   }
 }
 
-let isRefreshing = false;
-let refreshSubscribers: ((success: boolean) => void)[] = [];
-
-function onRefreshed(success: boolean) {
-  refreshSubscribers.forEach((cb) => cb(success));
-  refreshSubscribers = [];
-}
-
-function addRefreshSubscriber(cb: (success: boolean) => void) {
-  refreshSubscribers.push(cb);
-}
-
 export function getApiKey(): string {
   return localStorage.getItem('auth_api_key') || import.meta.env.VITE_API_KEY || '';
 }
@@ -42,113 +30,112 @@ export function setApiKey(key: string): void {
   localStorage.setItem('auth_api_key', key);
 }
 
-export function parseJwt(token: string): any {
-  try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      window
-        .atob(base64)
-        .split('')
-        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    );
-    return JSON.parse(jsonPayload);
-  } catch (e) {
-    return null;
-  }
-}
+// Create an Axios instance
+const axiosInstance: AxiosInstance = axios.create({
+  baseURL: API_BASE_URL,
+  withCredentials: true, // Send httpOnly cookies
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
 
-async function request<T = any>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<ApiResponse<T>> {
-  const url = `${API_BASE_URL.replace(/\/$/, '')}/${endpoint.replace(/^\//, '')}`;
-  
-  // Set defaults
-  const headers = new Headers(options.headers || {});
-  if (!headers.has('X-Api-Key')) {
-    headers.set('X-Api-Key', getApiKey());
-  }
-  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
-    headers.set('Content-Type', 'application/json');
-  }
+// Interceptor to add API key
+axiosInstance.interceptors.request.use(
+  (config: InternalAxiosRequestConfig) => {
+    const apiKey = getApiKey();
+    if (apiKey) {
+      config.headers.set('X-Api-Key', apiKey);
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
-  const config: RequestInit = {
-    ...options,
-    headers,
-    credentials: 'include', // Crucial to send/receive httpOnly cookies (access_token, refresh_token)
-  };
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (value?: unknown) => void;
+  reject: (reason?: any) => void;
+}> = [];
 
-  let response = await fetch(url, config);
-  
-  // Auto token refresh on 401 (only if not already trying to refresh or login)
-  if (response.status === 401 && !endpoint.includes('/auth/refresh') && !endpoint.includes('/auth/login')) {
-    if (isRefreshing) {
-      // Wait for ongoing refresh
-      const success = await new Promise<boolean>(resolve => addRefreshSubscriber(resolve));
-      if (success) {
-        response = await fetch(url, config);
-      }
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
     } else {
-      isRefreshing = true;
-      try {
-        const refreshResponse = await fetch(`${API_BASE_URL.replace(/\/$/, '')}/api/v1/auth/refresh`, {
-          method: 'POST',
-          headers: { 'X-Api-Key': getApiKey() },
-          credentials: 'include'
-        });
-        const success = refreshResponse.ok;
-        isRefreshing = false;
-        onRefreshed(success);
-        
-        if (success) {
-          // Retry original request
-          response = await fetch(url, config);
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+// Response interceptor for auto token refresh
+axiosInstance.interceptors.response.use(
+  (response) => {
+    // Return the response data directly as ApiResponse<T>
+    return response.data;
+  },
+  async (error: AxiosError) => {
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+
+    // Handle 401 Unauthorized for token refresh
+    if (
+      error.response?.status === 401 &&
+      originalRequest &&
+      !originalRequest._retry &&
+      !originalRequest.url?.includes('/auth/refresh') &&
+      !originalRequest.url?.includes('/auth/login')
+    ) {
+      if (isRefreshing) {
+        // Wait for ongoing refresh
+        try {
+          await new Promise((resolve, reject) => {
+            failedQueue.push({ resolve, reject });
+          });
+          return axiosInstance(originalRequest);
+        } catch (err) {
+          return Promise.reject(err);
         }
-      } catch (e) {
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        await axiosInstance.post('/api/v1/auth/refresh');
+        processQueue(null);
+        return axiosInstance(originalRequest);
+      } catch (refreshError) {
+        processQueue(refreshError, null);
+        return Promise.reject(refreshError);
+      } finally {
         isRefreshing = false;
-        onRefreshed(false);
       }
     }
-  }
-  
-  let json: any = {};
-  const text = await response.text();
-  if (text) {
-    try {
-      json = JSON.parse(text);
-    } catch {
-      json = { message: text };
-    }
-  }
 
-  if (!response.ok) {
-    const errorMsg = json.detail || json.error?.message || json.message || `Request failed with status ${response.status}`;
-    throw new ApiError(response.status, errorMsg, json);
+    // Format errors uniformly as ApiError
+    const responseData = error.response?.data as any;
+    const errorMsg =
+      responseData?.detail ||
+      responseData?.error?.message ||
+      responseData?.message ||
+      error.message ||
+      `Request failed with status ${error.response?.status}`;
+      
+    throw new ApiError(error.response?.status || 500, errorMsg, responseData);
   }
+);
 
-  return json as ApiResponse<T>;
-}
-
+// Wrapper API object to retain identical interface to the old api client
 export const api = {
-  get: <T = any>(endpoint: string, options?: RequestInit) => 
-    request<T>(endpoint, { ...options, method: 'GET' }),
+  get: <T = any>(endpoint: string, config?: Record<string, any>): Promise<ApiResponse<T>> => 
+    axiosInstance.get(endpoint, config) as unknown as Promise<ApiResponse<T>>,
     
-  post: <T = any>(endpoint: string, body?: any, options?: RequestInit) => 
-    request<T>(endpoint, { 
-      ...options, 
-      method: 'POST', 
-      body: body instanceof FormData ? body : JSON.stringify(body) 
-    }),
+  post: <T = any>(endpoint: string, data?: any, config?: Record<string, any>): Promise<ApiResponse<T>> => 
+    axiosInstance.post(endpoint, data, config) as unknown as Promise<ApiResponse<T>>,
     
-  put: <T = any>(endpoint: string, body?: any, options?: RequestInit) => 
-    request<T>(endpoint, { 
-      ...options, 
-      method: 'PUT', 
-      body: body instanceof FormData ? body : (body !== undefined ? JSON.stringify(body) : undefined) 
-    }),
+  put: <T = any>(endpoint: string, data?: any, config?: Record<string, any>): Promise<ApiResponse<T>> => 
+    axiosInstance.put(endpoint, data, config) as unknown as Promise<ApiResponse<T>>,
     
-  delete: <T = any>(endpoint: string, options?: RequestInit) => 
-    request<T>(endpoint, { ...options, method: 'DELETE' }),
+  delete: <T = any>(endpoint: string, config?: Record<string, any>): Promise<ApiResponse<T>> => 
+    axiosInstance.delete(endpoint, config) as unknown as Promise<ApiResponse<T>>,
 };
