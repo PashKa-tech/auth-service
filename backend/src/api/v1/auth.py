@@ -1,6 +1,6 @@
 import uuid
 from typing import Any
-from fastapi import APIRouter, Depends, Request, Response, HTTPException, status
+from fastapi import APIRouter, Depends, Request, Response, HTTPException, status, Form
 from pydantic import BaseModel, EmailStr, Field
 from src.core.context import get_request_id
 from src.api.deps import (
@@ -151,6 +151,10 @@ async def register(
     
     if await is_rate_limited(global_limit_key, 1000): # 1000 requests per tenant per minute
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Tenant rate limit exceeded")
+
+    from src.core.security import check_pwned_password
+    if await check_pwned_password(body.password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This password has appeared in a data breach. Please choose a different password.")
 
     try:
         user = await auth_service.register_user(body.email, body.password)
@@ -785,6 +789,10 @@ async def reset_password(
     if await is_rate_limited(ip_limit_key, 5):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many password reset attempts. Try again later.")
 
+    from src.core.security import check_pwned_password
+    if await check_pwned_password(body.new_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This password has appeared in a data breach. Please choose a different password.")
+
     try:
         await auth_service.reset_password(body.token, body.new_password)
         return UnifiedResponse(success=True, data={"message": "Password reset successfully"})
@@ -1028,7 +1036,7 @@ async def disable_2fa(
             identity_verified = await two_factor_service.verify_2fa(current_user, body.totp_code)
         elif body.password:
             from src.core.security import verify_password
-            identity_verified = verify_password(body.password, current_user.password_hash or "")
+            identity_verified = await verify_password(body.password, current_user.password_hash or "")
             
         if not identity_verified:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification credentials")

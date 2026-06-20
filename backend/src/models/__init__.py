@@ -4,6 +4,7 @@ from src.models.user import User
 from src.models.session import Session
 from src.models.token import RefreshToken, VerificationToken
 from src.models.oauth import OAuthAccount
+from src.models.m2m import OAuthApplication
 from src.models.audit import AuditLog
 from src.models.two_factor import TwoFactorBackupCode
 from src.models.webauthn import WebAuthnCredential
@@ -20,6 +21,7 @@ __all__ = [
     "Session",
     "RefreshToken",
     "OAuthAccount",
+    "OAuthApplication",
     "AuditLog",
     "TwoFactorBackupCode",
     "WebAuthnCredential",

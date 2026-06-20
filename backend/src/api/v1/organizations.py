@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from src.api.deps import get_current_user, get_tenant_service, RoleChecker, requires_fresh_auth
 from src.models.user import User
@@ -223,3 +224,29 @@ async def accept_invite(
     await db.commit()
     
     return UnifiedResponse(success=True, message="Invitation accepted successfully. You can now login.")
+
+from src.database import get_db
+
+@router.get("/{tenant_id}/branding", response_model=UnifiedResponse)
+async def get_tenant_branding(
+    tenant_id: uuid.UUID,
+    db: Any = Depends(get_db)
+):
+    """Get public branding configuration for a tenant."""
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from src.models.tenant import Tenant
+    session: AsyncSession = db
+    
+    res = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = res.scalar_one_or_none()
+    
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Organization not found")
+        
+    return UnifiedResponse(success=True, data={
+        "name": tenant.name,
+        "logo_url": tenant.logo_url,
+        "primary_color": tenant.primary_color,
+        "font_family": tenant.font_family
+    })

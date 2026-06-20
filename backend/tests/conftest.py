@@ -9,6 +9,7 @@ from typing import AsyncGenerator
 import pytest
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.pool import StaticPool
 from src.config import settings
 
 # Override settings for testing
@@ -22,7 +23,11 @@ from src.models.tenant import Tenant
 from src.main import app
 
 # Create async engine with shared cache
-test_engine = create_async_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
+test_engine = create_async_engine(
+    TEST_DB_URL, 
+    connect_args={"check_same_thread": False, "timeout": 15},
+    poolclass=StaticPool
+)
 TestSessionLocal = async_sessionmaker(
     bind=test_engine,
     class_=AsyncSession,

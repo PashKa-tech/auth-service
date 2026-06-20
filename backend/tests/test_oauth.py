@@ -169,13 +169,15 @@ async def clean_test_user(db_session: AsyncSession, email: str):
     res = await db_session.execute(select(User).where(User.email == email))
     user = res.scalar_one_or_none()
     if user:
+        from src.models.audit import AuditLog
+        await db_session.execute(delete(AuditLog).where(AuditLog.user_id == user.id))
         await db_session.execute(delete(OAuthAccount).where(OAuthAccount.user_id == user.id))
         session_res = await db_session.execute(select(Session).where(Session.user_id == user.id))
         sessions = session_res.scalars().all()
         for s in sessions:
             await db_session.execute(delete(RefreshToken).where(RefreshToken.session_id == s.id))
-            await db_session.delete(s)
-        await db_session.delete(user)
+            await db_session.execute(delete(Session).where(Session.id == s.id))
+        await db_session.execute(delete(User).where(User.id == user.id))
         await db_session.commit()
 
 
