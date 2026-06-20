@@ -1,9 +1,9 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { api } from './services/api';
 import { Layout } from './components/Layout';
 import { VerifyMagicLink } from './pages/VerifyMagicLink';
+import { useAuth } from './hooks/useAuth';
 
 const Login = lazy(() => import('./pages/Login').then(m => ({ default: m.Login })));
 const Profile = lazy(() => import('./pages/Profile').then(m => ({ default: m.Profile })));
@@ -63,35 +63,9 @@ export const PageLoader = ({ text = "Loading..." }: { text?: string }) => (
 );
 
 export const App: React.FC = () => {
-  const [user, setUser] = useState<any>(null);
-  const [checkingSession, setCheckingSession] = useState(true);
+  const { user, isLoading, setUser, logout } = useAuth();
 
-  // Restore session on application mount
-  const restoreSession = async () => {
-    try {
-      const resp = await api.get('/api/v1/auth/me');
-      setUser(resp.data);
-    } catch (err) {
-      console.log('No active session found.');
-      setUser(null);
-    } finally {
-      setCheckingSession(false);
-    }
-  };
-
-  useEffect(() => {
-    restoreSession();
-  }, []);
-
-  const handleLoginSuccess = (userData: any) => {
-    setUser(userData);
-  };
-
-  const handleLogout = () => {
-    setUser(null);
-  };
-
-  if (checkingSession) {
+  if (isLoading) {
     return <PageLoader text="Restoring session..." />;
   }
 
@@ -102,7 +76,7 @@ export const App: React.FC = () => {
     if (!user) {
       return <Navigate to="/login" replace />;
     }
-    return <Layout user={user} onLogout={handleLogout}>{children}</Layout>;
+    return <Layout user={user} onLogout={logout}>{children}</Layout>;
   };
 
   // Requires user to be logged in AND have admin role
@@ -113,7 +87,7 @@ export const App: React.FC = () => {
     if (user.role !== 'admin') {
       return <Navigate to="/profile" replace />;
     }
-    return <Layout user={user} onLogout={handleLogout}>{children}</Layout>;
+    return <Layout user={user} onLogout={logout}>{children}</Layout>;
   };
 
   // Requires user to be logged out (e.g. login/register pages)
@@ -132,7 +106,7 @@ export const App: React.FC = () => {
             path="/login"
             element={
               <GuestRoute>
-                <Login onLoginSuccess={handleLoginSuccess} />
+                <Login onLoginSuccess={setUser} />
               </GuestRoute>
             }
           />
@@ -150,7 +124,7 @@ export const App: React.FC = () => {
           />
           <Route
             path="/verify-magic-link"
-            element={<VerifyMagicLink onLoginSuccess={handleLoginSuccess} />}
+            element={<VerifyMagicLink onLoginSuccess={setUser} />}
           />
           <Route
             path="/verify-email"
