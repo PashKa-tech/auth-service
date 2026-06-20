@@ -11,11 +11,80 @@ from src.services.auth import AuthService
 from src.services.oauth import OAuthService
 from src.models.user import User
 from src.schemas.common import UnifiedResponse
+from src.schemas.auth import OAuthTokenRequest
 from src.config import settings
 from src.core.logging import logger
 from src.api.v1.auth_utils import get_client_ip, is_mobile_client, set_auth_cookies
 
 router = APIRouter()
+
+@router.post("/oauth/token", response_model=UnifiedResponse)
+async def exchange_oauth_token(
+    request_data: OAuthTokenRequest,
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    from src.core.redis import init_redis
+    import json
+    from src.core.security import verify_pkce, create_access_token, generate_opaque_token, hash_opaque_token
+    from datetime import datetime, timedelta, timezone
+
+    try:
+        redis_client = await init_redis()
+        code_data_json = await redis_client.get(f"oauth_code:{request_data.code}")
+        if not code_data_json:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired authorization code")
+            
+        code_data = json.loads(code_data_json)
+        await redis_client.delete(f"oauth_code:{request_data.code}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to process oauth code: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+
+    if not verify_pkce(request_data.code_verifier, code_data["code_challenge"], code_data.get("code_challenge_method", "S256")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code verifier")
+
+    user_id = uuid.UUID(code_data["user_id"])
+    tenant_id = uuid.UUID(code_data["tenant_id"])
+    role = code_data["role"]
+
+    session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    # We could collect IP/UA here too
+    session = await auth_service.session_repo.create(
+        user_id=user_id,
+        expires_at=session_expiry,
+        ip_address=None,
+        user_agent=None,
+        device_fingerprint=None
+    )
+    
+    raw_refresh = generate_opaque_token()
+    refresh_hash = hash_opaque_token(raw_refresh)
+    
+    await auth_service.token_repo.create(
+        session_id=session.id,
+        token_hash=refresh_hash,
+        family_id=str(uuid.uuid4()),
+        expires_at=session_expiry
+    )
+    
+    access_token = create_access_token(
+        subject=user_id,
+        tenant_id=tenant_id,
+        role=role,
+        session_id=session.id
+    )
+
+    return UnifiedResponse(
+        success=True,
+        data={
+            "access_token": access_token,
+            "refresh_token": raw_refresh,
+            "token_type": "Bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        }
+    )
 
 @router.get("/oauth/{provider}")
 async def oauth_login(

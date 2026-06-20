@@ -22,7 +22,7 @@ def hash_password_sync(password: str) -> str:
 def verify_password_sync(password: str, hashed_password: str) -> bool:
     try:
         return ph.verify(hashed_password, password)
-    except VerifyMismatchError:
+    except Exception:
         return False
 
 async def hash_password(password: str) -> str:

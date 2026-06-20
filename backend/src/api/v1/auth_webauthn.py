@@ -16,7 +16,7 @@ from src.api.v1.auth_utils import get_client_ip, is_mobile_client, set_auth_cook
 
 router = APIRouter()
 
-@router.get("/webauthn/register/begin", response_model=UnifiedResponse)
+@router.post("/webauthn/register/begin", response_model=UnifiedResponse)
 async def webauthn_register_begin(
     request: Request,
     current_user: User = Depends(get_current_user),
