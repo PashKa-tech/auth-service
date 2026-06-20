@@ -7,6 +7,7 @@ from src.api.deps import (
     get_webauthn_service
 )
 from src.services.auth import AuthService
+from src.services.webauthn import WebAuthnService
 from src.models.user import User
 from src.core.rate_limit import is_rate_limited
 from src.schemas.common import UnifiedResponse
@@ -19,7 +20,7 @@ router = APIRouter()
 async def webauthn_register_begin(
     request: Request,
     current_user: User = Depends(get_current_user),
-    webauthn_service: "WebAuthnService" = Depends(get_webauthn_service),
+    webauthn_service: WebAuthnService = Depends(get_webauthn_service),
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     ip_limit_key = f"webauthn_reg_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
@@ -37,7 +38,7 @@ async def webauthn_register_complete(
     request: Request,
     body: WebAuthnRegisterCompleteRequest,
     current_user: User = Depends(get_current_user),
-    webauthn_service: "WebAuthnService" = Depends(get_webauthn_service),
+    webauthn_service: WebAuthnService = Depends(get_webauthn_service),
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     ip_limit_key = f"webauthn_reg_c_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
@@ -54,7 +55,7 @@ async def webauthn_register_complete(
 async def webauthn_login_begin(
     request: Request,
     body: WebAuthnLoginBeginRequest,
-    webauthn_service: "WebAuthnService" = Depends(get_webauthn_service),
+    webauthn_service: WebAuthnService = Depends(get_webauthn_service),
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     ip_limit_key = f"webauthn_log_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
@@ -72,7 +73,7 @@ async def webauthn_login_complete(
     request: Request,
     response: Response,
     body: WebAuthnLoginCompleteRequest,
-    webauthn_service: "WebAuthnService" = Depends(get_webauthn_service),
+    webauthn_service: WebAuthnService = Depends(get_webauthn_service),
     auth_service: AuthService = Depends(get_auth_service),
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):

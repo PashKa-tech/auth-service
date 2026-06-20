@@ -1,9 +1,14 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.models.tenant import Tenant, TenantApiKey
 from src.repositories.base import BaseRepository
+
+if TYPE_CHECKING:
+    from src.models.user import User
+    from src.models.tenant import OrganizationInvite
 
 class TenantRepository(BaseRepository):
     async def create(self, name: str, rate_limit_rpm: int = 1000) -> Tenant:

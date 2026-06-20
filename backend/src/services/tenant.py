@@ -3,6 +3,7 @@ import secrets
 import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import Tuple
+from fastapi import BackgroundTasks
 from src.config import settings
 from src.repositories.tenant import TenantRepository
 from src.repositories.audit import AuditRepository
@@ -11,7 +12,7 @@ from src.models.tenant import Tenant, TenantApiKey, OrganizationInvite
 from src.models.user import User
 
 class TenantService:
-    def __init__(self, tenant_repo: TenantRepository, audit_repo: AuditRepository, email_service: EmailService, background_tasks: "BackgroundTasks"):
+    def __init__(self, tenant_repo: TenantRepository, audit_repo: AuditRepository, email_service: EmailService, background_tasks: BackgroundTasks):
         self.tenant_repo = tenant_repo
         self.audit_repo = audit_repo
         self.email_service = email_service

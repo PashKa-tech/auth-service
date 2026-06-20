@@ -1,4 +1,5 @@
 import uuid
+from fastapi import BackgroundTasks
 from src.models.user import User
 from src.repositories.user import UserRepository
 from src.repositories.two_factor import TwoFactorRepository
@@ -14,7 +15,7 @@ from src.core.totp import (
 )
 
 class TwoFactorService:
-    def __init__(self, user_repo: UserRepository, two_factor_repo: TwoFactorRepository, email_service: EmailService, background_tasks: "BackgroundTasks"):
+    def __init__(self, user_repo: UserRepository, two_factor_repo: TwoFactorRepository, email_service: EmailService, background_tasks: BackgroundTasks):
         self.user_repo = user_repo
         self.two_factor_repo = two_factor_repo
         self.email_service = email_service

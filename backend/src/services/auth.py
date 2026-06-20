@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timedelta, timezone
+from fastapi import BackgroundTasks
 from src.config import settings
 from src.core.logging import logger
 
@@ -49,7 +50,7 @@ class AuthService:
         oauth_repo: OAuthRepository,
         verification_token_repo: VerificationTokenRepository,
         email_service: EmailService,
-        background_tasks: "BackgroundTasks"
+        background_tasks: BackgroundTasks
     ):
         self.user_repo = user_repo
         self.session_repo = session_repo
