@@ -133,6 +133,7 @@ async def test_auth_flow_mobile(client: AsyncClient, verify_user):
         json={"email": email, "password": password}
     )
     assert reg_resp.status_code == 201
+    await verify_user(email)
     
     # 2. Login User
     login_resp = await client.post(

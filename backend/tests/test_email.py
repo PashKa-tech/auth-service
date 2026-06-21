@@ -26,13 +26,13 @@ async def test_email_verification_flow(client: AsyncClient, db_session, verify_u
         json={"email": email, "password": password}
     )
     assert reg_resp.status_code == 201
-    await verify_user(email)
     user_id = reg_resp.json()["data"]["id"]
 
     # Verify initially not verified
     me_check = await db_session.execute(select(User).where(User.id == uuid.UUID(user_id)))
     user_obj = me_check.scalar_one()
     assert user_obj.is_verified is False
+    await verify_user(email)
 
     # 2. Login to get cookies/token
     login_resp = await client.post(

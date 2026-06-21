@@ -15,6 +15,7 @@ async def test_webauthn_flows(client: AsyncClient, verify_user):
         headers=headers,
         json={"email": email, "password": password}
     )
+    await verify_user(email)
     
     # 2. Login User
     login_resp = await client.post(
