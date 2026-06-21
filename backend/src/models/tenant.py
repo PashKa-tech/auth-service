@@ -24,8 +24,8 @@ class Tenant(Base):
     font_family: Mapped[str] = mapped_column(String(100), default="Inter, sans-serif")
     pre_login_webhook_url: Mapped[str | None] = mapped_column(String(2048))
     rate_limit_rpm: Mapped[int] = mapped_column(Integer, default=1000)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     users: Mapped[list["User"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
@@ -46,9 +46,9 @@ class TenantApiKey(Base):
     name: Mapped[str] = mapped_column(String(255)) # e.g. "Production App Key"
     key_prefix: Mapped[str] = mapped_column(String(16)) # To identify the key (e.g. sk_prod_1234)
     api_key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True) # SHA-256 hashed full key
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relationships
     tenant: Mapped["Tenant"] = relationship(back_populates="api_keys")
@@ -61,9 +61,9 @@ class OrganizationInvite(Base):
     email: Mapped[str] = mapped_column(String(255), index=True)
     role: Mapped[str] = mapped_column(String(50), default="user")
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
-    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
     __table_args__ = (
         Index("uq_invite_tenant_email_lower", "tenant_id", text("lower(email)"), unique=True),

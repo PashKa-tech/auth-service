@@ -54,8 +54,8 @@ def serialize_scim_user(user: User) -> dict:
         "active": user.is_active,
         "meta": {
             "resourceType": "User",
-            "created": user.created_at.isoformat() + "Z",
-            "lastModified": user.updated_at.isoformat() + "Z"
+            "created": user.created_at.isoformat(),
+            "lastModified": user.updated_at.isoformat()
         }
     }
 

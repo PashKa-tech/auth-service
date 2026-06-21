@@ -24,8 +24,8 @@ class WebAuthnCredential(Base):
     transports: Mapped[str | None] = mapped_column(String(255)) # JSON list of transports
     
     # Metadata
-    last_used_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
     user: Mapped["User"] = relationship(back_populates="passkeys")

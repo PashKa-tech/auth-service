@@ -16,8 +16,8 @@ class TwoFactorBackupCode(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     code_hash: Mapped[str] = mapped_column(String(64))  # SHA-256 hash of the code
     is_used: Mapped[bool] = mapped_column(Boolean, default=False)
-    used_at: Mapped[datetime | None] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
     user: Mapped["User"] = relationship(back_populates="backup_codes")

@@ -26,8 +26,8 @@ async def list_sessions(
             "os_info": s.os_info,
             "browser_info": s.browser_info,
             "device_type": s.device_type,
-            "created_at": s.created_at.isoformat() + "Z",
-            "expires_at": s.expires_at.isoformat() + "Z"
+            "created_at": s.created_at.isoformat(),
+            "expires_at": s.expires_at.isoformat()
         }
         for s in sessions
     ]
@@ -67,7 +67,7 @@ async def get_audit_history(
             "action": log.action,
             "ip_address": log.ip_address,
             "user_agent": log.user_agent,
-            "timestamp": log.timestamp.isoformat() + "Z",
+            "timestamp": log.timestamp.isoformat(),
             "metadata": log.metadata_json
         })
         

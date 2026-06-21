@@ -128,12 +128,12 @@ def upgrade() -> None:
 
     with op.batch_alter_table('tenants', schema=None) as batch_op:
         batch_op.add_column(sa.Column('logo_url', sa.String(length=2048), nullable=True))
-        batch_op.add_column(sa.Column('primary_color', sa.String(length=7), nullable=False))
-        batch_op.add_column(sa.Column('font_family', sa.String(length=100), nullable=False))
+        batch_op.add_column(sa.Column('primary_color', sa.String(length=7), nullable=False, server_default=sa.text("'#000000'")))
+        batch_op.add_column(sa.Column('font_family', sa.String(length=100), nullable=False, server_default=sa.text("'sans-serif'")))
         batch_op.add_column(sa.Column('pre_login_webhook_url', sa.String(length=2048), nullable=True))
 
     with op.batch_alter_table('users', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('failed_login_attempts', sa.Integer(), nullable=False))
+        batch_op.add_column(sa.Column('failed_login_attempts', sa.Integer(), nullable=False, server_default=sa.text('0')))
         batch_op.add_column(sa.Column('locked_until', sa.DateTime(), nullable=True))
         batch_op.drop_constraint('uq_user_tenant_email', type_='unique')
 

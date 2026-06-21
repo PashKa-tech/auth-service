@@ -21,7 +21,7 @@ class AuditLog(Base):
     device_fingerprint: Mapped[str | None] = mapped_column(String(64))
     metadata_json: Mapped[dict | None] = mapped_column(JSON) # Maps to JSONB in PG, JSON text in SQLite
     # Note: timestamp is part of the primary key to support PostgreSQL partitioning
-    timestamp: Mapped[datetime] = mapped_column(DateTime, primary_key=True, server_default=func.now(), index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, server_default=func.now(), index=True)
 
     # Composite index for filtering logs by tenant and ordering by time
     __table_args__ = (

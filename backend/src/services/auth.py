@@ -85,7 +85,7 @@ class AuthService:
         custom_claims = None
         if webhook_url:
             webhook_service = WebhookService(self.user_repo.db)
-            if not webhook_service._is_safe_url(webhook_url):
+            if not await webhook_service._is_safe_url(webhook_url):
                 logger.warning(f"Pre-login webhook URL {webhook_url} blocked by SSRF protection for tenant {self.tenant_id}")
             else:
                 try:

@@ -41,7 +41,7 @@ class UserRepository(TenantScopedRepository):
         result = await self.db.execute(
             select(User)
             .where(User.tenant_id == self.tenant_id)
-            .order_by(User.email.asc())
+            .order_by(func.lower(User.email).asc())
             .limit(limit)
             .offset(offset)
         )

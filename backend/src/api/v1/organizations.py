@@ -26,7 +26,7 @@ async def get_current_organization(
         "id": str(tenant.id),
         "name": tenant.name,
         "rate_limit_rpm": tenant.rate_limit_rpm,
-        "created_at": tenant.created_at.isoformat() + "Z"
+        "created_at": tenant.created_at.isoformat()
     })
 
 @router.get("/api-keys", response_model=UnifiedResponse)
@@ -41,8 +41,8 @@ async def list_api_keys(
             "id": str(key.id),
             "name": key.name,
             "key_prefix": key.key_prefix,
-            "created_at": key.created_at.isoformat() + "Z",
-            "last_used_at": key.last_used_at.isoformat() + "Z" if key.last_used_at else None
+            "created_at": key.created_at.isoformat(),
+            "last_used_at": key.last_used_at.isoformat() if key.last_used_at else None
         })
     return UnifiedResponse(success=True, data=formatted_keys)
 
@@ -94,7 +94,7 @@ async def list_members(
             "id": str(m.id),
             "email": m.email,
             "role": m.role,
-            "created_at": m.created_at.isoformat() + "Z"
+            "created_at": m.created_at.isoformat()
         })
     return UnifiedResponse(success=True, data=data)
 
@@ -126,8 +126,8 @@ async def list_invites(
             "id": str(i.id),
             "email": i.email,
             "role": i.role,
-            "expires_at": i.expires_at.isoformat() + "Z",
-            "created_at": i.created_at.isoformat() + "Z"
+            "expires_at": i.expires_at.isoformat(),
+            "created_at": i.created_at.isoformat()
         })
     return UnifiedResponse(success=True, data=data)
 

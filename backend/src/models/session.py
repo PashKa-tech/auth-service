@@ -22,8 +22,9 @@ class Session(Base):
     device_type: Mapped[str | None] = mapped_column(String(50)) # e.g. "PC", "Mobile", "Tablet"
     device_fingerprint: Mapped[str | None] = mapped_column(String(64)) # SHA-256 hash
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Composite Index for checking active sessions of a user
     __table_args__ = (

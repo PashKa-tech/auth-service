@@ -24,6 +24,7 @@ async def garbage_collect_expired_tokens():
                     deleted_vtokens += res1.rowcount
                     if res1.rowcount < 1000:
                         break
+                    await asyncio.sleep(0.1)
                 
                 # Delete expired refresh tokens
                 deleted_rtokens = 0
@@ -37,6 +38,7 @@ async def garbage_collect_expired_tokens():
                     deleted_rtokens += res2.rowcount
                     if res2.rowcount < 1000:
                         break
+                    await asyncio.sleep(0.1)
                 
                 # Delete expired sessions
                 deleted_sessions = 0
@@ -50,6 +52,7 @@ async def garbage_collect_expired_tokens():
                     deleted_sessions += res3.rowcount
                     if res3.rowcount < 1000:
                         break
+                    await asyncio.sleep(0.1)
 
                 # Delete expired organization invites
                 deleted_invites = 0
@@ -63,6 +66,7 @@ async def garbage_collect_expired_tokens():
                     deleted_invites += res4.rowcount
                     if res4.rowcount < 1000:
                         break
+                    await asyncio.sleep(0.1)
 
                 # Delete failed webhook deliveries
                 deleted_webhooks = 0
@@ -76,6 +80,7 @@ async def garbage_collect_expired_tokens():
                     deleted_webhooks += res5.rowcount
                     if res5.rowcount < 1000:
                         break
+                    await asyncio.sleep(0.1)
                 
                 await session.commit()
                 

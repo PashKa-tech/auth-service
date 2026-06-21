@@ -10,6 +10,7 @@ from fastapi import BackgroundTasks
 from urllib.parse import urlparse
 import ipaddress
 import socket
+import asyncio
 
 from src.models.webhook import WebhookEndpoint, WebhookDelivery
 from src.core.logging import logger
@@ -29,7 +30,7 @@ async def deliver_webhook_background(delivery_id: uuid.UUID):
                 return
 
             service = WebhookService(db)
-            if not service._is_safe_url(endpoint.url):
+            if not await service._is_safe_url(endpoint.url):
                 delivery.status = "failed"
                 delivery.last_error = "Unsafe or internal URL blocked by SSRF protection"
                 delivery.attempt_count += 1
@@ -80,7 +81,7 @@ class WebhookService:
         signature = hmac.new(secret_bytes, payload_bytes, hashlib.sha256).hexdigest()
         return signature
 
-    def _is_safe_url(self, url: str) -> bool:
+    async def _is_safe_url(self, url: str) -> bool:
         """Prevent SSRF by rejecting local/private IP addresses or malformed URLs."""
         try:
             parsed = urlparse(url)
@@ -91,7 +92,9 @@ class WebhookService:
             if not hostname:
                 return False
 
-            ip = socket.gethostbyname(hostname)
+            loop = asyncio.get_running_loop()
+            addr_info = await loop.getaddrinfo(hostname, None)
+            ip = addr_info[0][4][0]
             ip_obj = ipaddress.ip_address(ip)
             
             if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_multicast:

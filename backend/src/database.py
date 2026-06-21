@@ -12,6 +12,9 @@ engine_kwargs = {
 if not settings.DATABASE_URL.startswith("sqlite"):
     engine_kwargs["pool_size"] = 50
     engine_kwargs["max_overflow"] = 100
+    engine_kwargs["connect_args"] = {
+        "prepared_statement_cache_size": 0 # Required for PgBouncer in transaction mode
+    }
 
 engine = create_async_engine(
     settings.DATABASE_URL,

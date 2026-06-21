@@ -356,7 +356,7 @@ async def list_linked_accounts(
             "id": str(acc.id),
             "provider": acc.provider,
             "provider_email": acc.provider_email,
-            "linked_at": acc.linked_at.isoformat() + "Z"
+            "linked_at": acc.linked_at.isoformat()
         }
         for acc in accounts
     ]

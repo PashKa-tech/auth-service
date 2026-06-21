@@ -38,13 +38,13 @@ async def list_actions(
     actions = await repo.get_all()
     
     data = [
-        ActionResponse(
-            id=str(a.id),
-            name=a.name,
-            trigger=a.trigger,
-            code=a.code,
-            is_active=a.is_active
-        ).model_dump()
+        {
+            "id": str(a.id),
+            "name": a.name,
+            "trigger": a.trigger,
+            "code": a.code,
+            "is_active": a.is_active
+        }
         for a in actions
     ]
     return UnifiedResponse(success=True, data=data)

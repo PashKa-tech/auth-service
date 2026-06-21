@@ -28,7 +28,7 @@ def upgrade() -> None:
         op.execute("CREATE UNIQUE INDEX uq_invite_tenant_email_lower ON organization_invites (tenant_id, LOWER(email));")
     
     # 2. AuditLog Partitioning
-    op.drop_table('audit_logs')
+    op.rename_table('audit_logs', 'audit_logs_old')
     
     if is_postgres:
         op.execute("""
@@ -82,6 +82,8 @@ def upgrade() -> None:
         op.create_index('idx_audit_user_time', 'audit_logs', ['user_id', 'timestamp'])
         op.create_index('ix_audit_logs_user_id', 'audit_logs', ['user_id'])
         op.create_index('ix_audit_logs_tenant_id', 'audit_logs', ['tenant_id'])
+
+    op.execute('INSERT INTO audit_logs SELECT * FROM audit_logs_old')
 
 
 def downgrade() -> None:
