@@ -5,3 +5,4 @@ pytest-env
 hypothesis
 aiosqlite==0.19.0
 fakeredis==2.14.0
+testcontainers>=4.0.0
