@@ -234,10 +234,31 @@ class AppleStrategy(OAuthProviderStrategy):
             raise ValueError("Apple did not return id_token")
         
         import jwt
-        decoded = jwt.decode(id_token, options={"verify_signature": False})
+        from jwt import PyJWKClient
+        
+        jwks_client = PyJWKClient("https://appleid.apple.com/auth/keys")
+        signing_key = jwks_client.get_signing_key_from_jwt(id_token)
+        
+        try:
+            decoded = jwt.decode(
+                id_token,
+                signing_key.key,
+                algorithms=["RS256"],
+                audience=client_id,
+                issuer="https://appleid.apple.com"
+            )
+        except jwt.PyJWTError as e:
+            logger.error(f"Apple id_token verification failed: {str(e)}")
+            raise ValueError("Invalid Apple id_token signature")
+
         email = decoded.get("email")
         if not email:
             raise ValueError("Apple id_token does not contain email")
+            
+        email_verified = decoded.get("email_verified")
+        if str(email_verified).lower() not in ("true", "1"):
+            raise ValueError("Apple account email is not verified")
+            
         return OAuthUserInfo(provider_id=str(decoded.get("sub")), email=email)
 
 class FacebookStrategy(OAuthProviderStrategy):

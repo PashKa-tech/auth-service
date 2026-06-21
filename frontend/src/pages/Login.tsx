@@ -3,7 +3,8 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { LogIn, UserPlus, Settings, CheckCircle, AlertCircle, Key, Mail } from 'lucide-react';
 import { api, getApiKey, setApiKey, API_BASE_URL } from '../services/api';
 import { motion } from 'framer-motion';
-import { CaptchaWidget, CaptchaResult } from '../components/CaptchaWidget';
+import { CaptchaWidget } from '../components/CaptchaWidget';
+import type { CaptchaResult } from '../components/CaptchaWidget';
 
 interface LoginProps {
   onLoginSuccess: (user: any) => void;

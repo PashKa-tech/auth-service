@@ -23,7 +23,7 @@ class Session(Base):
     device_fingerprint: Mapped[str | None] = mapped_column(String(64)) # SHA-256 hash
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
 
     # Composite Index for checking active sessions of a user
     __table_args__ = (

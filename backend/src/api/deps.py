@@ -243,6 +243,22 @@ async def get_audit_repository(
 ) -> AuditRepository:
     return AuditRepository(db, tenant_id)
 
+from src.repositories.rbac import RbacRepository
+
+async def get_rbac_repository(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+) -> RbacRepository:
+    return RbacRepository(db, tenant_id)
+
+from src.repositories.action import ActionRepository
+
+async def get_action_repository(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
+) -> ActionRepository:
+    return ActionRepository(db, tenant_id)
+
 async def get_oauth_repository(
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(resolve_tenant)

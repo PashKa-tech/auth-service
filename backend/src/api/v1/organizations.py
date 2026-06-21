@@ -50,12 +50,9 @@ async def list_api_keys(
 async def create_api_key(
     req: CreateApiKeyRequest,
     current_user: User = Depends(requires_fresh_auth), # Require step-up to generate keys
+    _=Depends(RoleChecker(["admin"])),
     tenant_service: TenantService = Depends(get_tenant_service)
 ):
-    # Enforce role
-    if current_user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can create API keys")
-
     api_key, raw_secret = await tenant_service.create_api_key(req.name, current_user.id)
     
     return UnifiedResponse(success=True, message="API Key generated. Save it now, it will not be shown again.", data={
@@ -69,10 +66,9 @@ async def create_api_key(
 async def revoke_api_key(
     key_id: uuid.UUID,
     current_user: User = Depends(requires_fresh_auth),
+    _=Depends(RoleChecker(["admin"])),
     tenant_service: TenantService = Depends(get_tenant_service)
 ):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can revoke API keys")
 
     success = await tenant_service.delete_api_key(key_id, current_user.id)
     if not success:
@@ -106,11 +102,9 @@ async def list_members(
 async def remove_member(
     user_id: uuid.UUID,
     current_user: User = Depends(requires_fresh_auth),
+    _=Depends(RoleChecker(["admin"])),
     tenant_service: TenantService = Depends(get_tenant_service)
 ):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can remove members")
-    
     if current_user.id == user_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove yourself")
 
@@ -141,11 +135,9 @@ async def list_invites(
 async def create_invite(
     req: InviteRequest,
     current_user: User = Depends(requires_fresh_auth),
+    _=Depends(RoleChecker(["admin"])),
     tenant_service: TenantService = Depends(get_tenant_service)
 ):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can send invites")
-
     try:
         await tenant_service.create_invite(req.email, req.role, current_user.id)
         return UnifiedResponse(success=True, message="Invitation sent successfully")
@@ -156,10 +148,9 @@ async def create_invite(
 async def delete_invite(
     invite_id: uuid.UUID,
     current_user: User = Depends(requires_fresh_auth),
+    _=Depends(RoleChecker(["admin"])),
     tenant_service: TenantService = Depends(get_tenant_service)
 ):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can delete invites")
 
     success = await tenant_service.delete_invite(invite_id, current_user.id)
     if not success:
@@ -206,7 +197,7 @@ async def accept_invite(
     if res_user.scalar_one_or_none():
         # They are already a member! Just delete the invite.
         await db.delete(invite)
-        await db.flush()
+        await db.commit()
         return UnifiedResponse(success=True, message="You are already a member of this organization. You can now login.")
 
     # Create the user

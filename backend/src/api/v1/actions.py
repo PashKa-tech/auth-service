@@ -6,7 +6,8 @@ import uuid
 from typing import List
 
 from src.database import get_db
-from src.api.deps import resolve_tenant
+from src.api.deps import resolve_tenant, get_action_repository
+from src.repositories.action import ActionRepository
 from src.models.action import Action
 from src.schemas.common import UnifiedResponse
 
@@ -32,11 +33,9 @@ class ActionResponse(BaseModel):
 
 @router.get("", response_model=UnifiedResponse)
 async def list_actions(
-    db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant)
+    repo: "ActionRepository" = Depends(get_action_repository)
 ):
-    res = await db.execute(select(Action).where(Action.tenant_id == tenant_id))
-    actions = res.scalars().all()
+    actions = await repo.get_all()
     
     data = [
         ActionResponse(
@@ -53,19 +52,18 @@ async def list_actions(
 @router.post("", response_model=UnifiedResponse, status_code=status.HTTP_201_CREATED)
 async def create_action(
     body: ActionCreate,
-    db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant)
+    repo: "ActionRepository" = Depends(get_action_repository)
 ):
     action = Action(
-        tenant_id=tenant_id,
+        tenant_id=repo.tenant_id,
         name=body.name,
         trigger=body.trigger,
         code=body.code,
         is_active=True
     )
-    db.add(action)
-    await db.commit()
-    await db.refresh(action)
+    repo.add(action)
+    await repo.db.commit()
+    await repo.db.refresh(action)
     
     return UnifiedResponse(success=True, data={"id": str(action.id)})
 
@@ -73,11 +71,9 @@ async def create_action(
 async def update_action(
     action_id: uuid.UUID,
     body: ActionUpdate,
-    db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant)
+    repo: "ActionRepository" = Depends(get_action_repository)
 ):
-    res = await db.execute(select(Action).where(Action.id == action_id, Action.tenant_id == tenant_id))
-    action = res.scalar_one_or_none()
+    action = await repo.get_by_id(action_id)
     
     if not action:
         raise HTTPException(status_code=404, detail="Action not found")
@@ -87,21 +83,19 @@ async def update_action(
     if body.code is not None: action.code = body.code
     if body.is_active is not None: action.is_active = body.is_active
     
-    await db.commit()
+    await repo.db.commit()
     return UnifiedResponse(success=True, data={"id": str(action.id)})
 
 @router.delete("/{action_id}", response_model=UnifiedResponse)
 async def delete_action(
     action_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant)
+    repo: "ActionRepository" = Depends(get_action_repository)
 ):
-    res = await db.execute(select(Action).where(Action.id == action_id, Action.tenant_id == tenant_id))
-    action = res.scalar_one_or_none()
+    action = await repo.get_by_id(action_id)
     
     if not action:
         raise HTTPException(status_code=404, detail="Action not found")
         
-    await db.delete(action)
-    await db.commit()
+    await repo.delete(action)
+    await repo.db.commit()
     return UnifiedResponse(success=True, message="Action deleted")

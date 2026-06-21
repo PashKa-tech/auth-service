@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
-import { CaptchaWidget, CaptchaResult } from '../components/CaptchaWidget';
+import { CaptchaWidget } from '../components/CaptchaWidget';
+import type { CaptchaResult } from '../components/CaptchaWidget';
 
 export const ForgotPassword = () => {
   const [email, setEmail] = useState('');

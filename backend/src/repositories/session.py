@@ -97,9 +97,11 @@ class SessionRepository(TenantScopedRepository):
         return result.scalar_one_or_none()
 
     async def list_active_by_user(self, user_id: uuid.UUID) -> list[Session]:
+        from sqlalchemy.orm import contains_eager
         result = await self.db.execute(
             select(Session)
             .join(User, Session.user_id == User.id)
+            .options(contains_eager(Session.user))
             .where(
                 Session.user_id == user_id,
                 User.tenant_id == self.tenant_id,
@@ -125,15 +127,18 @@ class SessionRepository(TenantScopedRepository):
         return result.rowcount > 0
 
     async def revoke_all_by_user(self, user_id: uuid.UUID) -> int:
-        # Revoke all sessions for user belonging to this tenant
+        # Verify user belongs to tenant first
+        user_exists = await self.db.execute(
+            select(User.id).where(User.id == user_id, User.tenant_id == self.tenant_id)
+        )
+        if not user_exists.scalar_one_or_none():
+            return 0
+
         result = await self.db.execute(
             update(Session)
             .where(
                 Session.user_id == user_id,
-                Session.is_revoked == False,
-                Session.user_id.in_(
-                    select(User.id).where(User.id == user_id, User.tenant_id == self.tenant_id)
-                )
+                Session.is_revoked == False
             )
             .values(is_revoked=True)
         )

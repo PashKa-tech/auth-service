@@ -240,6 +240,7 @@ class AuthService:
             metadata_json={"email": email.lower().strip(), "role": role}
         )
 
+        await self.user_repo.db.commit()
         return user
 
     async def login_user(
@@ -307,6 +308,7 @@ class AuthService:
                 user_agent=user_agent,
                 device_fingerprint=fingerprint
             )
+            await self.user_repo.db.commit()
             return LoginResult(requires_2fa=True, mfa_token=mfa_token)
 
         # Check for location anomaly (mock GeoIP)
@@ -338,6 +340,7 @@ class AuthService:
             metadata_json={"session_id": str(session.id)}
         )
 
+        await self.user_repo.db.commit()
         return LoginResult(
             requires_2fa=False,
             access_token=access_token,
@@ -412,6 +415,7 @@ class AuthService:
             metadata_json={"session_id": str(session.id), "mfa_verified": True}
         )
 
+        await self.user_repo.db.commit()
         return LoginResult(
             requires_2fa=False,
             access_token=access_token,
@@ -518,6 +522,7 @@ class AuthService:
             metadata_json={"session_id": str(session.id)}
         )
 
+        await self.user_repo.db.commit()
         return new_access_token, new_raw_refresh
 
     async def logout_user(self, session_id: uuid.UUID, user_id: uuid.UUID) -> bool:
@@ -557,6 +562,7 @@ class AuthService:
             user_id=user_id,
             metadata_json={"session_id": str(session.id)}
         )
+        await self.user_repo.db.commit()
         return True
 
     async def logout_all_sessions(self, user_id: uuid.UUID) -> int:
@@ -582,6 +588,7 @@ class AuthService:
             action="user_logged_out_all_devices",
             user_id=user_id
         )
+        await self.user_repo.db.commit()
         return revoked_count
 
     async def request_email_verification(self, user_id: uuid.UUID) -> None:
@@ -606,6 +613,7 @@ class AuthService:
             email=user.email,
             verification_link=verify_url
         )
+        await self.user_repo.db.commit()
 
     async def verify_email(self, token: str) -> None:
         """Verify user's email using token from repository."""
@@ -631,6 +639,7 @@ class AuthService:
             action="email_verified",
             user_id=user.id
         )
+        await self.user_repo.db.commit()
 
     async def request_password_reset(self, email: str) -> None:
         """Request a password reset link. Prevents email enumeration."""
@@ -653,6 +662,7 @@ class AuthService:
             email=user.email,
             reset_link=reset_url
         )
+        await self.user_repo.db.commit()
 
     async def reset_password(self, token: str, new_password: str) -> None:
         """Reset user's password, invalidating all current sessions."""
@@ -682,6 +692,7 @@ class AuthService:
             action="password_reset_success",
             user_id=user.id
         )
+        await self.user_repo.db.commit()
 
     async def get_user_audit_logs(self, user_id: uuid.UUID, limit: int = 50) -> list:
         """Fetch recent audit logs for a specific user."""
@@ -720,4 +731,5 @@ class AuthService:
             user_id=user_id,
             metadata_json={"revoked_session_id": str(session.id)}
         )
+        await self.user_repo.db.commit()
         return True

@@ -51,6 +51,7 @@ class TwoFactorService:
         # Get QR provisioning URI
         uri = get_provisioning_uri(secret, user.email)
 
+        await self.user_repo.db.commit()
         return {
             "totp_secret": secret,
             "provisioning_uri": uri,
@@ -90,6 +91,7 @@ class TwoFactorService:
             </div>
             """
         )
+        await self.user_repo.db.commit()
         return True
 
     async def verify_2fa(self, user: User, code: str) -> bool:
@@ -119,6 +121,7 @@ class TwoFactorService:
             if backup_code.code_hash == code_hash:
                 # Mark backup code as used
                 await self.two_factor_repo.use_code(backup_code)
+                await self.user_repo.db.commit()
                 return True
 
         return False
@@ -152,6 +155,7 @@ class TwoFactorService:
             </div>
             """
         )
+        await self.user_repo.db.commit()
         return raw_backup_codes
 
     async def disable_2fa(self, user: User, password: str | None = None, totp_code: str | None = None) -> bool:
@@ -194,4 +198,5 @@ class TwoFactorService:
             </div>
             """
         )
+        await self.user_repo.db.commit()
         return True

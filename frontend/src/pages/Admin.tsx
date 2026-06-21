@@ -40,13 +40,14 @@ export const Admin: React.FC = () => {
 
   const fetchAdminData = useCallback(async () => {
     try {
-      const statsResp = await api.get('/api/v1/auth/admin/stats');
+      const [statsResp, usersResp, logsResp] = await Promise.all([
+        api.get('/api/v1/auth/admin/stats'),
+        api.get(`/api/v1/auth/admin/users?limit=${userLimit}`),
+        api.get(`/api/v1/auth/admin/audit-logs?limit=${logLimit}`)
+      ]);
+
       setStats(statsResp.data);
-
-      const usersResp = await api.get(`/api/v1/auth/admin/users?limit=${userLimit}`);
       setUsers(usersResp.data);
-
-      const logsResp = await api.get(`/api/v1/auth/admin/audit-logs?limit=${logLimit}`);
       setLogs(logsResp.data);
     } catch (err: any) {
       setError(err.message || 'Failed to load admin dashboard data');

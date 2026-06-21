@@ -20,11 +20,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
 
   const handleSignOut = async () => {
     try {
-      await api.post('/api/v1/auth/logout');
-    } catch (err) {
-      console.error('Logout request failed', err);
+      await onLogout();
     } finally {
-      onLogout();
       navigate('/login');
     }
   };

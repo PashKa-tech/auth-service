@@ -17,19 +17,17 @@ router = APIRouter()
 # Restrict to admins only
 admin_only = RoleChecker(["admin", "manager"])
 
+from src.api.deps import get_rbac_repository, get_user_repository
+from src.repositories.rbac import RbacRepository
+from src.repositories.user import UserRepository
+
 @router.get("/roles")
 async def list_roles(
-    db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant),
+    repo: RbacRepository = Depends(get_rbac_repository),
     current_user: User = Depends(admin_only)
 ):
     """List all roles for the tenant."""
-    result = await db.execute(
-        select(Role)
-        .where(Role.tenant_id == tenant_id)
-        .options(selectinload(Role.permissions))
-    )
-    roles = result.scalars().all()
+    roles = await repo.get_all_roles()
     
     return [
         {
@@ -47,42 +45,39 @@ async def create_role(
     name: str,
     description: str = "",
     permissions: list[str] = [],
-    db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant),
+    repo: RbacRepository = Depends(get_rbac_repository),
     current_user: User = Depends(admin_only)
 ):
     """Create a new custom role."""
     # Check if role exists
-    existing = await db.execute(select(Role).where(Role.tenant_id == tenant_id, Role.name == name))
-    if existing.scalar_one_or_none():
+    existing = await repo.get_role_by_name(name)
+    if existing:
         raise HTTPException(status_code=400, detail="Role already exists")
         
     role = Role(
-        tenant_id=tenant_id,
+        tenant_id=repo.tenant_id,
         name=name,
         description=description,
         is_system=False
     )
-    db.add(role)
-    await db.flush()
+    repo.add_role(role)
+    await repo.db.flush()
     
     for perm in permissions:
         rp = RolePermission(role_id=role.id, permission=perm)
-        db.add(rp)
+        repo.add_role_permission(rp)
         
-    await db.commit()
+    await repo.db.commit()
     return {"message": "Role created successfully", "role_id": role.id}
 
 @router.delete("/roles/{role_id}")
 async def delete_role(
     role_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant),
+    repo: RbacRepository = Depends(get_rbac_repository),
     current_user: User = Depends(admin_only)
 ):
     """Delete a custom role."""
-    result = await db.execute(select(Role).where(Role.id == role_id, Role.tenant_id == tenant_id))
-    role = result.scalar_one_or_none()
+    role = await repo.get_role_by_id(role_id)
     
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
@@ -90,8 +85,8 @@ async def delete_role(
     if role.is_system:
         raise HTTPException(status_code=400, detail="Cannot delete system role")
         
-    await db.delete(role)
-    await db.commit()
+    await repo.delete_role(role)
+    await repo.db.commit()
     return {"message": "Role deleted successfully"}
 
 class RoleAssignRequest(BaseModel):
@@ -101,33 +96,31 @@ class RoleAssignRequest(BaseModel):
 @router.post("/roles/assign", response_model=UnifiedResponse)
 async def assign_role(
     body: RoleAssignRequest,
-    db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant),
+    repo: RbacRepository = Depends(get_rbac_repository),
+    user_repo: UserRepository = Depends(get_user_repository),
     current_user: User = Depends(admin_only)
 ):
     """Assign a role to a user."""
     from src.models.rbac import UserRole
     
     # Verify user belongs to tenant
-    user_res = await db.execute(select(User).where(User.id == body.user_id, User.tenant_id == tenant_id))
-    user = user_res.scalar_one_or_none()
+    user = await user_repo.get_by_id(body.user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found in tenant")
 
     # Verify role belongs to tenant
-    role_res = await db.execute(select(Role).where(Role.id == body.role_id, Role.tenant_id == tenant_id))
-    role = role_res.scalar_one_or_none()
+    role = await repo.get_role_by_id(body.role_id)
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
         
     # Check if already assigned
-    ur_res = await db.execute(select(UserRole).where(UserRole.user_id == body.user_id, UserRole.role_id == body.role_id))
-    if ur_res.scalar_one_or_none():
+    ur = await repo.get_user_role(body.user_id, body.role_id)
+    if ur:
         raise HTTPException(status_code=400, detail="User already has this role")
         
     ur = UserRole(user_id=body.user_id, role_id=body.role_id)
-    db.add(ur)
-    await db.commit()
+    repo.add_user_role(ur)
+    await repo.db.commit()
     
     return UnifiedResponse(success=True, message="Role assigned successfully")
 
@@ -135,23 +128,16 @@ async def assign_role(
 async def unassign_role(
     user_id: uuid.UUID,
     role_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant),
+    repo: RbacRepository = Depends(get_rbac_repository),
     current_user: User = Depends(admin_only)
 ):
     """Unassign a role from a user."""
-    from src.models.rbac import UserRole
-    ur_res = await db.execute(
-        select(UserRole)
-        .join(Role, UserRole.role_id == Role.id)
-        .where(UserRole.user_id == user_id, UserRole.role_id == role_id, Role.tenant_id == tenant_id)
-    )
-    ur = ur_res.scalar_one_or_none()
+    ur = await repo.get_user_role(user_id, role_id)
     
     if not ur:
         raise HTTPException(status_code=404, detail="Role assignment not found")
         
-    await db.delete(ur)
-    await db.commit()
+    await repo.delete_user_role(ur)
+    await repo.db.commit()
     
     return UnifiedResponse(success=True, message="Role unassigned successfully")

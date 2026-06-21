@@ -21,8 +21,34 @@ class TenantRepository(BaseRepository):
         return tenant
 
     async def get_by_id(self, tenant_id: uuid.UUID) -> Tenant | None:
+        from src.core.redis import init_redis
+        import json
+        
+        try:
+            redis = await init_redis()
+            cache_key = f"tenant:{tenant_id}"
+            cached = await redis.get(cache_key)
+            if cached:
+                data = json.loads(cached)
+                return Tenant(**data)
+        except Exception:
+            pass
+
         result = await self.db.execute(select(Tenant).where(Tenant.id == tenant_id))
-        return result.scalar_one_or_none()
+        tenant = result.scalar_one_or_none()
+        
+        try:
+            if tenant:
+                redis = await init_redis()
+                await redis.set(f"tenant:{tenant_id}", json.dumps({
+                    "id": str(tenant.id),
+                    "name": tenant.name,
+                    "rate_limit_rpm": tenant.rate_limit_rpm
+                }), ex=300)
+        except Exception:
+            pass
+            
+        return tenant
 
     async def get_by_api_key_hash(self, api_key_hash: str) -> Tenant | None:
         result = await self.db.execute(

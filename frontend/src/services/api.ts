@@ -1,4 +1,5 @@
-import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
+import axios, { AxiosError } from 'axios';
+import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -120,6 +121,12 @@ axiosInstance.interceptors.response.use(
       responseData?.message ||
       error.message ||
       `Request failed with status ${error.response?.status}`;
+      
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      if (!originalRequest.url?.includes('/auth/login')) {
+        window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+      }
+    }
       
     throw new ApiError(error.response?.status || 500, errorMsg, responseData);
   }

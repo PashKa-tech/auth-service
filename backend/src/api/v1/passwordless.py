@@ -47,7 +47,7 @@ async def start_passwordless(
             role="user"
         )
         db.add(user)
-        await db.flush()
+        await db.commit()
     
     # Generate unique token
     token = secrets.token_urlsafe(32)
@@ -108,8 +108,40 @@ async def verify_passwordless(
         
     
     from src.api.v1.auth_utils import get_client_ip
+    from src.core.fingerprint import calculate_device_fingerprint
+    from datetime import datetime, timezone, timedelta
+    from src.config import settings
+
     user_agent = request.headers.get("User-Agent")
     client_ip = get_client_ip(request)
+    accept_language = request.headers.get("Accept-Language")
+    fingerprint = calculate_device_fingerprint(user_agent, client_ip, accept_language)
     
-    tokens = await auth_service.login_user(user, user_agent, client_ip)
-    return UnifiedResponse(success=True, data=tokens, message="Successfully authenticated via magic link.")
+    session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    session = await auth_service.session_repo.create(
+        user_id=user.id,
+        expires_at=session_expiry,
+        ip_address=client_ip,
+        user_agent=user_agent,
+        device_fingerprint=fingerprint
+    )
+    if client_ip:
+        auth_service.session_repo.enrich_geoip_background(auth_service.background_tasks, session.id, client_ip)
+
+    access_token, raw_refresh = await auth_service._issue_tokens(user, session)
+    
+    auth_service.audit_repo.create_background(
+        auth_service.background_tasks,
+        action="passwordless_login_success",
+        user_id=user.id,
+        ip_address=client_ip,
+        user_agent=user_agent,
+        device_fingerprint=fingerprint,
+        metadata_json={"session_id": str(session.id)}
+    )
+    await auth_service.user_repo.db.commit()
+
+    return UnifiedResponse(success=True, data={
+        "access_token": access_token,
+        "refresh_token": raw_refresh
+    }, message="Successfully authenticated via magic link.")

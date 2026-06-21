@@ -25,16 +25,16 @@ export const Profile: React.FC = () => {
 
   const fetchData = async () => {
     try {
-      const meResp = await api.get('/api/v1/auth/me');
+      const [meResp, sessResp, oauthResp, auditResp] = await Promise.all([
+        api.get('/api/v1/auth/me'),
+        api.get('/api/v1/auth/sessions'),
+        api.get('/api/v1/auth/me/linked-accounts'),
+        api.get('/api/v1/auth/me/audit')
+      ]);
+
       setUser(meResp.data);
-
-      const sessResp = await api.get('/api/v1/auth/sessions');
       setSessions(sessResp.data);
-
-      const oauthResp = await api.get('/api/v1/auth/me/linked-accounts');
       setLinkedAccounts(oauthResp.data);
-
-      const auditResp = await api.get('/api/v1/auth/me/audit');
       setAuditLogs(auditResp.data);
     } catch (err: any) {
       setError(err.message || 'Failed to load profile data');

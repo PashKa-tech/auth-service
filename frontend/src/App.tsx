@@ -65,6 +65,14 @@ export const PageLoader = ({ text = "Loading..." }: { text?: string }) => (
 export const App: React.FC = () => {
   const { user, isLoading, setUser, logout } = useAuth();
 
+  React.useEffect(() => {
+    const handleUnauthorized = () => {
+      logout();
+    };
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
+  }, [logout]);
+
   if (isLoading) {
     return <PageLoader text="Restoring session..." />;
   }

@@ -66,7 +66,7 @@ class CaptchaService:
             if not captcha_id:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Captcha ID is required for custom captcha")
             if not redis_module.redis_client:
-                return True # Fallback if redis is down
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Captcha service unavailable")
                 
             expected = await redis_module.redis_client.get(f"captcha:{captcha_id}")
             if not expected:
@@ -83,7 +83,7 @@ class CaptchaService:
             if not settings.GOOGLE_RECAPTCHA_SECRET:
                 return True # Skip if not configured
                 
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.post("https://www.google.com/recaptcha/api/siteverify", data={
                     "secret": settings.GOOGLE_RECAPTCHA_SECRET,
                     "response": captcha_token,
@@ -92,6 +92,10 @@ class CaptchaService:
                 data = resp.json()
                 if not data.get("success"):
                     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Google reCAPTCHA")
+                    
+                score = data.get("score")
+                if score is not None and score < 0.5:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="reCAPTCHA score too low")
             return True
             
         return True

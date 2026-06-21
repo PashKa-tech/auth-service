@@ -14,13 +14,13 @@ jobs:
     - name: Set up Python 3.11
       uses: actions/setup-python@v5
       with:
-        python-version: "3.11"
+        python-version: "3.12"
         cache: 'pip'
     - name: Install dependencies
       run: |
         cd backend
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install -r requirements.txt -r requirements-dev.txt
     - name: Lint with flake8
       run: |
         cd backend
@@ -47,11 +47,11 @@ jobs:
     - name: Install dependencies
       run: |
         cd frontend
-        npm install
+        npm ci
     - name: Lint
       run: |
         cd frontend
-        npm run lint || true
+        npm run lint
     - name: Type Check
       run: |
         cd frontend
@@ -67,4 +67,4 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Verify Docker Compose config
-      run: docker-compose config
+      run: docker compose config
