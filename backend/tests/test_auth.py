@@ -105,6 +105,7 @@ async def test_auth_full_flow_browser(client: AsyncClient):
     # 7. Check Security: Reuse Attack Protection!
     # Try to reuse the original refresh token which is now rotated (revoked)
     reuse_cookies = cookies # has orig_refresh
+    client.cookies.clear() # Prevent httpx from silently using the rotated token from its internal jar
     reuse_resp = await client.post("/api/v1/auth/refresh", cookies=reuse_cookies)
     assert reuse_resp.status_code == 401
     assert "reuse" in reuse_resp.json()["error"]["message"].lower()

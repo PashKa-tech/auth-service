@@ -16,6 +16,20 @@ class MockResponse:
 @pytest.fixture(autouse=True)
 def mock_oauth_http(monkeypatch):
     """Mock token exchange and userprofile fetch endpoints for all OAuth providers."""
+    import jwt
+    class MockJWKClient:
+        def __init__(self, *args, **kwargs): pass
+        def get_signing_key_from_jwt(self, *args, **kwargs):
+            return type('MockKey', (), {'key': 'secret'})()
+    monkeypatch.setattr("jwt.PyJWKClient", MockJWKClient)
+    
+    original_jwt_decode = jwt.decode
+    def mock_jwt_decode(token, key="", **kwargs):
+        if kwargs.get("issuer") == "https://appleid.apple.com":
+            return {"sub": "apple_sub_12345", "email": "apple_test_user@example.com", "email_verified": "true"}
+        return original_jwt_decode(token, key, **kwargs)
+    monkeypatch.setattr("jwt.decode", mock_jwt_decode)
+    
     original_post = httpx.AsyncClient.post
     original_get = httpx.AsyncClient.get
     
@@ -35,9 +49,8 @@ def mock_oauth_http(monkeypatch):
                 "access_token": "mock-discord-access-token"
             })
         elif "appleid.apple.com/auth/token" in url_str:
-            import jwt
             fake_id_token = jwt.encode(
-                {"sub": "apple_sub_12345", "email": "apple_test_user@example.com"},
+                {"sub": "apple_sub_12345", "email": "apple_test_user@example.com", "email_verified": "true"},
                 "key",
                 algorithm="HS256"
             )
@@ -222,6 +235,8 @@ async def test_oauth_callback_flow_browser(client: AsyncClient, db_session: Asyn
     
     # 3. Call /me to verify user was created
     me_resp = await client.get("/api/v1/auth/me", cookies=cookies)
+    if me_resp.status_code != 200:
+        print("ME_RESP ERROR:", me_resp.json())
     assert me_resp.status_code == 200
     assert me_resp.json()["data"]["email"] == "google_test_user@example.com"
     assert me_resp.json()["data"]["is_verified"] is True
@@ -534,6 +549,8 @@ async def test_oauth_flow_new_providers(client: AsyncClient, db_session: AsyncSe
         
         # 3. Call /me to verify email matches
         me_resp = await client.get("/api/v1/auth/me", cookies=cookies)
+        if me_resp.status_code != 200:
+            print("ME_RESP ERROR 2:", me_resp.json())
         assert me_resp.status_code == 200
         assert me_resp.json()["data"]["email"] == email
 

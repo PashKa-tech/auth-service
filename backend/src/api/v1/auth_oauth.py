@@ -321,6 +321,8 @@ async def oauth_callback(
             device_fingerprint=fingerprint,
             metadata_json={"session_id": str(session.id), "method": f"oauth_{provider}"}
         )
+        
+        await auth_service.user_repo.db.commit()
 
         mobile = is_mobile_client(request)
         if mobile:

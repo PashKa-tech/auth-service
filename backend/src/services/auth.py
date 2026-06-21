@@ -461,6 +461,9 @@ class AuthService:
             await self.token_repo.revoke_family(token.family_id)
             # Revoke current session
             await self.session_repo.revoke(session.id)
+            from src.core.redis import init_redis
+            redis_client = await init_redis()
+            await redis_client.delete(f"session:{session.id}")
             
             # Log critical security audit event
             self.audit_repo.create_background(self.background_tasks,
@@ -535,6 +538,9 @@ class AuthService:
         if not session.is_revoked:
             ACTIVE_SESSIONS.labels(tenant_id=str(self.tenant_id)).dec()
         await self.session_repo.revoke(session.id)
+        from src.core.redis import init_redis
+        redis_client = await init_redis()
+        await redis_client.delete(f"session:{session.id}")
 
         # Revoke tokens associated with session
         # We can just revoke by setting is_revoked for family
@@ -576,13 +582,20 @@ class AuthService:
         from sqlalchemy import update, select
         from src.models.token import RefreshToken
         from src.models.session import Session
+        
+        sessions_to_revoke = await self.session_repo.db.execute(select(Session.id).where(Session.user_id == user_id))
+        session_ids = [s_id for s_id, in sessions_to_revoke]
+        
         await self.token_repo.db.execute(
             update(RefreshToken)
-            .where(RefreshToken.session_id.in_(
-                select(Session.id).where(Session.user_id == user_id)
-            ))
+            .where(RefreshToken.session_id.in_(session_ids))
             .values(is_revoked=True)
         )
+        
+        from src.core.redis import init_redis
+        redis_client = await init_redis()
+        for s_id in session_ids:
+            await redis_client.delete(f"session:{s_id}")
 
         self.audit_repo.create_background(self.background_tasks,
             action="user_logged_out_all_devices",

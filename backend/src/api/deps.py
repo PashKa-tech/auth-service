@@ -410,24 +410,12 @@ async def get_current_user(
             )
         await redis_client.set(session_cache_key, "1", ex=60) # Short TTL for revocation check
         
-    user_cache_key = f"user:{user_uuid}"
-    cached_user = await redis_client.get(user_cache_key)
-    
-    if cached_user:
-        user_data = json.loads(cached_user)
-        user = User(id=uuid.UUID(user_data["id"]), role=user_data["role"], is_active=user_data["is_active"], email=user_data.get("email", ""))
-        if not user.is_active:
-             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account is deactivated")
-    else:
-        user = await user_repo.get_by_id(user_uuid)
-        if not user or not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found or deactivated"
-            )
-        user_data = {"id": str(user.id), "role": user.role, "is_active": user.is_active, "email": user.email}
-        await redis_client.set(user_cache_key, json.dumps(user_data), ex=3600) # Long TTL, invalidated on update
-
+    user = await user_repo.get_by_id(user_uuid)
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or deactivated"
+        )
     # Inject session_id into request state for endpoint handlers
     request.state.session_id = session_uuid
     
