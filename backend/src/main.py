@@ -48,6 +48,9 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+from src.core.tracing import init_tracing
+init_tracing(app)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,

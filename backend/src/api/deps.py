@@ -210,6 +210,10 @@ async def resolve_tenant(
         tenant_id = await resolver()
         if tenant_id:
             set_tenant_id(tenant_id)
+            from src.config import settings
+            if "postgresql" in settings.DATABASE_URL:
+                from sqlalchemy import text
+                await db.execute(text("SET LOCAL app.current_tenant = :t"), {"t": str(tenant_id)})
             return tenant_id
 
     raise HTTPException(

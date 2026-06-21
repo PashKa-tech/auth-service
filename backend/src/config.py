@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     
     # Database
     DATABASE_URL: str = Field(default="postgresql+asyncpg://user:password@localhost:5432/authdb")
+    DATABASE_URL_RO: str | None = Field(default=None)
     
     # Caching / Redis
     REDIS_HOST: str = "localhost"

@@ -50,7 +50,26 @@ services:
           cpus: '1'
           memory: 1G
 
-  redis:
+  db-replica:
+    image: bitnami/postgresql:15
+    environment:
+      - POSTGRESQL_REPLICATION_MODE=slave
+      - POSTGRESQL_REPLICATION_USER=${POSTGRES_USER}
+      - POSTGRESQL_REPLICATION_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRESQL_MASTER_HOST=db
+      - POSTGRESQL_MASTER_PORT_NUMBER=5432
+      - POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD}
+    networks:
+      - internal
+    depends_on:
+      - db
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  redis-master:
     image: redis:7-alpine
     volumes:
       - redis_data:/data
@@ -61,11 +80,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
+
+  redis-sentinel:
+    image: bitnami/redis-sentinel:7.0
+    environment:
+      - REDIS_MASTER_HOST=redis-master
+      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=5000
+    networks:
+      - internal
+    depends_on:
+      - redis-master
 
   pgbouncer:
     image: edoburu/pgbouncer:latest
@@ -89,13 +113,24 @@ services:
           cpus: '0.5'
           memory: 256M
 
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - internal
+
   backend:
     build: ./backend
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
-      - REDIS_HOST=redis
+      - DATABASE_URL_RO=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db-replica:5432/${POSTGRES_DB}
+      - REDIS_HOST=redis-master
       - REDIS_PORT=6379
       - USE_FAKEREDIS=false
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
     env_file:
       - .env
     networks:

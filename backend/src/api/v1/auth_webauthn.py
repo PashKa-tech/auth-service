@@ -4,10 +4,12 @@ from src.api.deps import (
     get_auth_service,
     get_current_user,
     resolve_tenant,
-    get_webauthn_service
+    get_webauthn_service,
+    get_captcha_service
 )
 from src.services.auth import AuthService
 from src.services.webauthn import WebAuthnService
+from src.services.captcha import CaptchaService
 from src.models.user import User
 from src.core.rate_limit import is_rate_limited
 from src.schemas.common import UnifiedResponse
@@ -56,11 +58,15 @@ async def webauthn_login_begin(
     request: Request,
     body: WebAuthnLoginBeginRequest,
     webauthn_service: WebAuthnService = Depends(get_webauthn_service),
+    captcha_service: CaptchaService = Depends(get_captcha_service),
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     ip_limit_key = f"webauthn_log_ip:{tenant_id}:{get_client_ip(request) or 'unknown'}"
     if await is_rate_limited(ip_limit_key, 5):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many attempts. Try again later.")
+
+    # Verify Captcha
+    await captcha_service.verify_captcha(body.captcha_token, body.captcha_id)
 
     try:
         options = await webauthn_service.begin_login(body.email)

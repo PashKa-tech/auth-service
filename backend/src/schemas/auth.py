@@ -34,7 +34,7 @@ class OAuthTokenRequest(BaseModel):
     code: str
     code_verifier: str
 
-class WebAuthnLoginBeginRequest(BaseModel):
+class WebAuthnLoginBeginRequest(CaptchaBase):
     email: EmailStr
 
 class WebAuthnRegisterCompleteRequest(BaseModel):
