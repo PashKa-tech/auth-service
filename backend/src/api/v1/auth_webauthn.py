@@ -28,7 +28,7 @@ async def webauthn_register_begin(
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many attempts. Try again later.")
 
     try:
-        options = await webauthn_service.begin_registration(current_user)
+        options = await webauthn_service.begin_registration(current_user.id)
         return UnifiedResponse(success=True, data=options)
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -46,7 +46,7 @@ async def webauthn_register_complete(
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many attempts. Try again later.")
 
     try:
-        credential = await webauthn_service.complete_registration(current_user, body.response, body.name)
+        credential = await webauthn_service.complete_registration(current_user.id, body.response, body.name)
         return UnifiedResponse(success=True, data={"message": "Passkey registered successfully", "id": str(credential.id)})
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
