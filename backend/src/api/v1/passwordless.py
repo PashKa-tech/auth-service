@@ -91,7 +91,7 @@ async def verify_passwordless(
     data = json.loads(data_str)
     user_id = uuid.UUID(data["user_id"])
     
-    res = await db.execute(select(User).where(User.id == user_id))
+    res = await db.execute(select(User).where(User.id == user_id, User.tenant_id == auth_service.tenant_id))
     user = res.scalar_one_or_none()
     
     if not user:

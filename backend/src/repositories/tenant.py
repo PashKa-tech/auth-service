@@ -126,10 +126,10 @@ class TenantRepository(BaseRepository):
         )
         return result.scalar_one_or_none()
 
-    async def delete_invite(self, invite_id: uuid.UUID) -> bool:
+    async def delete_invite(self, tenant_id: uuid.UUID, invite_id: uuid.UUID) -> bool:
         from src.models.tenant import OrganizationInvite
         result = await self.db.execute(
-            delete(OrganizationInvite).where(OrganizationInvite.id == invite_id)
+            delete(OrganizationInvite).where(OrganizationInvite.tenant_id == tenant_id, OrganizationInvite.id == invite_id)
         )
         await self.db.flush()
         return result.rowcount > 0

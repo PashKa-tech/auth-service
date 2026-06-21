@@ -464,6 +464,7 @@ class PermissionChecker:
                 .join(Role)
                 .join(UserRole)
                 .where(UserRole.user_id == current_user.id)
+                .where(Role.tenant_id == current_user.tenant_id)
             )
             permissions = [row[0] for row in result.all()]
             await redis_client.set(cache_key, json.dumps(permissions), ex=3600)

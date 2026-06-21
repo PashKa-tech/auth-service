@@ -15,9 +15,8 @@ router = APIRouter()
 admin_only = RoleChecker(["admin", "manager"])
 
 class WebhookCreate(BaseModel):
-    name: str
     url: str
-    event_types: list[str]
+    events_list: list[str]
 
 @router.get("", response_model=UnifiedResponse)
 async def list_webhooks(
@@ -32,10 +31,8 @@ async def list_webhooks(
     return UnifiedResponse(success=True, data=[
         {
             "id": w.id,
-            "name": w.name,
             "url": w.url,
-            "event_types": w.event_types,
-            "is_active": w.is_active
+            "events_list": w.events_list
         } for w in endpoints
     ])
 
@@ -51,21 +48,18 @@ async def create_webhook(
     
     webhook = WebhookEndpoint(
         tenant_id=tenant_id,
-        name=body.name,
         url=body.url,
-        secret=secret,
-        event_types=body.event_types,
-        is_active=True
+        secret_key=secret,
+        events_list=body.events_list
     )
     db.add(webhook)
     await db.commit()
     
     return UnifiedResponse(success=True, data={
         "id": webhook.id,
-        "name": webhook.name,
         "url": webhook.url,
-        "secret": secret, # only returned once
-        "event_types": webhook.event_types
+        "secret_key": secret, # only returned once
+        "events_list": webhook.events_list
     })
 
 @router.delete("/{webhook_id}", response_model=UnifiedResponse)
@@ -108,10 +102,10 @@ async def list_webhook_deliveries(
         {
             "id": d.id,
             "endpoint_id": d.endpoint_id,
-            "event_type": d.event_type,
-            "status_code": d.status_code,
-            "success": d.success,
-            "duration_ms": d.duration_ms,
+            "payload": d.payload,
+            "status": d.status,
+            "attempt_count": d.attempt_count,
+            "last_error": d.last_error,
             "created_at": d.created_at.isoformat() if d.created_at else None
         } for d in deliveries
     ])

@@ -129,7 +129,7 @@ class TenantService:
         return invite
 
     async def delete_invite(self, invite_id: uuid.UUID, admin_id: uuid.UUID) -> bool:
-        success = await self.tenant_repo.delete_invite(invite_id)
+        success = await self.tenant_repo.delete_invite(self.tenant_id, invite_id)
         if success:
             await self.audit_repo.create(
                 action="invite_deleted",

@@ -76,6 +76,7 @@ class AuthService:
         # Execute pre-login webhook if configured
         from sqlalchemy import select
         from src.models.tenant import Tenant
+        from src.services.webhook import WebhookService
         import httpx
         
         res = await self.user_repo.db.execute(select(Tenant.pre_login_webhook_url).where(Tenant.id == self.tenant_id))
@@ -83,24 +84,28 @@ class AuthService:
         
         custom_claims = None
         if webhook_url:
-            try:
-                # We execute it synchronously but without blocking the async event loop using httpx.AsyncClient
-                async with httpx.AsyncClient(timeout=3.0) as client:
-                    webhook_resp = await client.post(
-                        webhook_url,
-                        json={
-                            "user": {"id": str(user.id), "email": user.email, "role": user.role},
-                            "session": {"id": str(session.id)}
-                        }
-                    )
-                    if webhook_resp.status_code == 200:
-                        data = webhook_resp.json()
-                        if data.get("action") == "deny":
-                            raise ValueError(data.get("reason", "Access denied by pre-login webhook"))
-                        custom_claims = data.get("custom_claims", {})
-            except httpx.RequestError as e:
-                logger.warning(f"Pre-login webhook failed for tenant {self.tenant_id}: {e}")
-                # We fail open if webhook is down.
+            webhook_service = WebhookService(self.user_repo.db)
+            if not webhook_service._is_safe_url(webhook_url):
+                logger.warning(f"Pre-login webhook URL {webhook_url} blocked by SSRF protection for tenant {self.tenant_id}")
+            else:
+                try:
+                    # We execute it synchronously but without blocking the async event loop using httpx.AsyncClient
+                    async with httpx.AsyncClient(timeout=3.0) as client:
+                        webhook_resp = await client.post(
+                            webhook_url,
+                            json={
+                                "user": {"id": str(user.id), "email": user.email, "role": user.role},
+                                "session": {"id": str(session.id)}
+                            }
+                        )
+                        if webhook_resp.status_code == 200:
+                            data = webhook_resp.json()
+                            if data.get("action") == "deny":
+                                raise ValueError(data.get("reason", "Access denied by pre-login webhook"))
+                            custom_claims = data.get("custom_claims", {})
+                except httpx.RequestError as e:
+                    logger.warning(f"Pre-login webhook failed for tenant {self.tenant_id}: {e}")
+                    # We fail open if webhook is down.
 
         # Execute Post-Login JS Actions
         try:
