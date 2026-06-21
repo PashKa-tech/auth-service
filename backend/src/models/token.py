@@ -13,6 +13,7 @@ class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True) # SHA-256 hash of opaque token
     family_id: Mapped[str] = mapped_column(String(36), index=True) # UUID representation as string
@@ -27,6 +28,7 @@ class VerificationToken(Base):
     __tablename__ = "verification_tokens"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     token: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     token_type: Mapped[str] = mapped_column(String(50)) # 'email_verify', 'password_reset'

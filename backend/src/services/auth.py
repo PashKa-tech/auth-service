@@ -123,7 +123,9 @@ class AuthService:
                 custom_claims.update(access_token_claims)
         except Exception as e:
             logger.error(f"Post-login action error: {e}")
-            raise ValueError(str(e)) # We fail closed on action explicit denies
+            if "Access denied" in str(e) or "Explicitly denied" in str(e):
+                raise ValueError(str(e)) # We fail closed on action explicit denies
+            # Soft-fail on script timeout/syntax error
 
         access_token = await create_access_token(
             subject=user.id,
@@ -174,8 +176,7 @@ class AuthService:
             # Send warning email
             user = await self.user_repo.get_by_id(user_id)
             if user:
-                self.background_tasks.add_task(
-                    self.email_service.send_email,
+                await self.email_service.enqueue_email(
                     to_email=user.email,
                     subject="Предупреждение безопасности: обнаружен подозрительный вход - Auth Service",
                     body=f"""
@@ -215,6 +216,10 @@ class AuthService:
             # but for a register endpoint, standard behavior is returning conflict.
             raise ValueError("Email already registered")
 
+        from src.core.security import check_pwned_password
+        if await check_pwned_password(password):
+            raise ValueError("This password has appeared in a data breach. Please choose a different password.")
+
         # 2. Hash password and create user
         pwd_hash = await hash_password(password)
         user = await self.user_repo.create(
@@ -232,8 +237,7 @@ class AuthService:
         )
 
         verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
-        self.background_tasks.add_task(
-            self.email_service.send_verification_email,
+        await self.email_service.send_verification_email(
             email=user.email,
             verification_link=verify_url
         )
@@ -248,6 +252,67 @@ class AuthService:
         await self.user_repo.db.commit()
         return user
 
+    async def _finalize_login(
+        self,
+        user: User,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        accept_language: str | None = None,
+        bypass_2fa: bool = False,
+        login_method: str = "password"
+    ) -> LoginResult:
+        fingerprint = calculate_device_fingerprint(user_agent, ip_address, accept_language)
+
+        # Check if 2FA is enabled
+        if user.is_two_factor_enabled and not bypass_2fa:
+            mfa_token = await create_mfa_token(user.id, self.tenant_id)
+            self.audit_repo.create_background(self.background_tasks,
+                action="2fa_challenge_issued",
+                user_id=user.id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                device_fingerprint=fingerprint
+            )
+            await self.user_repo.db.commit()
+            return LoginResult(requires_2fa=True, mfa_token=mfa_token)
+
+        # Check for location anomaly (mock GeoIP)
+        await self._check_ip_anomaly(user.id, ip_address, user_agent, fingerprint)
+
+        # Create Session
+        session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        session = await self.session_repo.create(
+            user_id=user.id,
+            expires_at=session_expiry,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_fingerprint=fingerprint
+        )
+        if ip_address:
+            self.session_repo.enrich_geoip_background(self.background_tasks, session.id, ip_address)
+
+        access_token, raw_refresh = await self._issue_tokens(user, session)
+
+        # Audit Log
+        LOGIN_COUNTER.labels(status="success", tenant_id=str(self.tenant_id)).inc()
+        ACTIVE_SESSIONS.labels(tenant_id=str(self.tenant_id)).inc()
+        self.audit_repo.create_background(self.background_tasks,
+            action="login_success",
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            device_fingerprint=fingerprint,
+            metadata_json={"session_id": str(session.id), "method": login_method}
+        )
+
+        await self.user_repo.db.commit()
+        return LoginResult(
+            requires_2fa=False,
+            access_token=access_token,
+            refresh_token=raw_refresh,
+            session=session
+        )
+
     async def login_user(
         self,
         email: str,
@@ -257,7 +322,6 @@ class AuthService:
         accept_language: str | None = None
     ) -> LoginResult:
         """Authenticate user and issue new session and tokens."""
-        # Calculate fingerprint
         fingerprint = calculate_device_fingerprint(user_agent, ip_address, accept_language)
 
         # 1. Fetch user
@@ -315,55 +379,7 @@ class AuthService:
             user.locked_until = None
             await self.user_repo.db.commit()
 
-        # Check if 2FA is enabled
-        if user.is_two_factor_enabled:
-            mfa_token = await create_mfa_token(user.id, self.tenant_id)
-            self.audit_repo.create_background(self.background_tasks,
-                action="2fa_challenge_issued",
-                user_id=user.id,
-                ip_address=ip_address,
-                user_agent=user_agent,
-                device_fingerprint=fingerprint
-            )
-            await self.user_repo.db.commit()
-            return LoginResult(requires_2fa=True, mfa_token=mfa_token)
-
-        # Check for location anomaly (mock GeoIP)
-        await self._check_ip_anomaly(user.id, ip_address, user_agent, fingerprint)
-
-        # 3. Create Session
-        session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-        session = await self.session_repo.create(
-            user_id=user.id,
-            expires_at=session_expiry,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            device_fingerprint=fingerprint
-        )
-        if ip_address:
-            self.session_repo.enrich_geoip_background(self.background_tasks, session.id, ip_address)
-
-        access_token, raw_refresh = await self._issue_tokens(user, session)
-
-        # 6. Audit Log
-        LOGIN_COUNTER.labels(status="success", tenant_id=str(self.tenant_id)).inc()
-        ACTIVE_SESSIONS.labels(tenant_id=str(self.tenant_id)).inc()
-        self.audit_repo.create_background(self.background_tasks,
-            action="login_success",
-            user_id=user.id,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            device_fingerprint=fingerprint,
-            metadata_json={"session_id": str(session.id)}
-        )
-
-        await self.user_repo.db.commit()
-        return LoginResult(
-            requires_2fa=False,
-            access_token=access_token,
-            refresh_token=raw_refresh,
-            session=session
-        )
+        return await self._finalize_login(user, ip_address, user_agent, accept_language)
 
     async def complete_2fa_login(
         self,
@@ -403,42 +419,7 @@ class AuthService:
             )
             raise ValueError("Invalid 2FA code")
             
-        # Check for location anomaly (mock GeoIP)
-        await self._check_ip_anomaly(user.id, ip_address, user_agent, fingerprint)
-
-        # 3. Create Session
-        session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-        session = await self.session_repo.create(
-            user_id=user.id,
-            expires_at=session_expiry,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            device_fingerprint=fingerprint
-        )
-        if ip_address:
-            self.session_repo.enrich_geoip_background(self.background_tasks, session.id, ip_address)
-
-        access_token, raw_refresh = await self._issue_tokens(user, session)
-
-        # 6. Audit Log
-        LOGIN_COUNTER.labels(status="success", tenant_id=str(self.tenant_id)).inc()
-        ACTIVE_SESSIONS.labels(tenant_id=str(self.tenant_id)).inc()
-        self.audit_repo.create_background(self.background_tasks,
-            action="login_success",
-            user_id=user.id,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            device_fingerprint=fingerprint,
-            metadata_json={"session_id": str(session.id), "mfa_verified": True}
-        )
-
-        await self.user_repo.db.commit()
-        return LoginResult(
-            requires_2fa=False,
-            access_token=access_token,
-            refresh_token=raw_refresh,
-            session=session
-        )
+        return await self._finalize_login(user, ip_address, user_agent, accept_language, bypass_2fa=True, login_method="2fa_verified")
 
     async def refresh_tokens(
         self,
@@ -638,8 +619,7 @@ class AuthService:
         )
         
         verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
-        self.background_tasks.add_task(
-            self.email_service.send_verification_email,
+        await self.email_service.send_verification_email(
             email=user.email,
             verification_link=verify_url
         )
@@ -687,8 +667,7 @@ class AuthService:
         )
         
         reset_url = f"{settings.FRONTEND_URL}/reset-password?token={raw_token}"
-        self.background_tasks.add_task(
-            self.email_service.send_password_reset_email,
+        await self.email_service.send_password_reset_email(
             email=user.email,
             reset_link=reset_url
         )

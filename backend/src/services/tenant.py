@@ -137,3 +137,49 @@ class TenantService:
                 metadata_json={"invite_id": str(invite_id)}
             )
         return success
+
+    async def accept_invite(self, token: str, password: str) -> str:
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        
+        from sqlalchemy import select, func
+        from src.models.tenant import OrganizationInvite
+        from src.models.user import User as DBUser
+        from src.core.security import hash_password
+        
+        result = await self.tenant_repo.db.execute(
+            select(OrganizationInvite).where(OrganizationInvite.token_hash == token_hash)
+        )
+        invite = result.scalar_one_or_none()
+        
+        if not invite:
+            raise ValueError("Invalid or expired invitation token")
+            
+        if invite.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+            raise ValueError("Invitation has expired")
+
+        # Check if user already exists in this tenant
+        res_user = await self.tenant_repo.db.execute(
+            select(DBUser).where(DBUser.tenant_id == invite.tenant_id, func.lower(DBUser.email) == invite.email.lower())
+        )
+        if res_user.scalar_one_or_none():
+            # They are already a member! Just delete the invite.
+            await self.tenant_repo.db.delete(invite)
+            await self.tenant_repo.db.commit()
+            return "You are already a member of this organization. You can now login."
+
+        # Create the user
+        password_hash = await hash_password(password)
+        new_user = DBUser(
+            tenant_id=invite.tenant_id,
+            email=invite.email,
+            password_hash=password_hash,
+            role=invite.role,
+            is_verified=True # Email is verified because they received the invite
+        )
+        self.tenant_repo.db.add(new_user)
+        
+        # Delete the invite
+        await self.tenant_repo.db.delete(invite)
+        await self.tenant_repo.db.commit()
+        
+        return "Invitation accepted successfully. You can now login."

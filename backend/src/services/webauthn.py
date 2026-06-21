@@ -191,45 +191,11 @@ class WebAuthnService:
         # But auth_service.login_user checks password.
         # We need a new method in auth_service to issue tokens directly for passkey/oauth.
         # Actually OAuth uses similar logic. Let's look at how OAuth does it or implement it.
-        # Wait, we can reuse auth_service._check_ip_anomaly and create a session directly.
-        from src.core.fingerprint import calculate_device_fingerprint
-        from src.core.security import create_access_token, generate_opaque_token, hash_opaque_token
-        from datetime import datetime, timezone, timedelta
-
-        fingerprint = calculate_device_fingerprint(user_agent, ip_address, accept_language)
-        
-        # Check for anomaly
-        await self.auth_service._check_ip_anomaly(user.id, ip_address, user_agent, fingerprint)
-
-        # 3. Create Session
-        session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-        session = await self.auth_service.session_repo.create(
-            user_id=user.id,
-            expires_at=session_expiry,
+        return await self.auth_service._finalize_login(
+            user=user,
             ip_address=ip_address,
             user_agent=user_agent,
-            device_fingerprint=fingerprint
-        )
-
-        # 4. Generate Tokens (executes webhooks & JS actions)
-        access_token, raw_refresh = await self.auth_service._issue_tokens(user, session)
-
-        # 6. Audit Log
-        from src.core.metrics import LOGIN_COUNTER, ACTIVE_SESSIONS
-        LOGIN_COUNTER.labels(status="success", tenant_id=str(self.auth_service.tenant_id)).inc()
-        ACTIVE_SESSIONS.labels(tenant_id=str(self.auth_service.tenant_id)).inc()
-        await self.auth_service.audit_repo.create(
-            action="login_success",
-            user_id=user.id,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            device_fingerprint=fingerprint,
-            metadata_json={"session_id": str(session.id), "method": "passkey"}
-        )
-
-        return LoginResult(
-            requires_2fa=False, # Passkey is inherently 2FA (possession + inherence)
-            access_token=access_token,
-            refresh_token=raw_refresh,
-            session=session
+            accept_language=accept_language,
+            bypass_2fa=True,
+            login_method="passkey"
         )

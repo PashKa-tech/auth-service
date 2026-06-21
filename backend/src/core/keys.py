@@ -4,6 +4,7 @@ import base64
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
+from src.config import settings
 
 CERTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "certs")
 PRIVATE_KEY_PATH = os.path.join(CERTS_DIR, "private_key.pem")
@@ -25,43 +26,60 @@ def get_rsa_keys():
     if _private_key is not None:
         return _private_key, _public_key, _jwks
         
-    os.makedirs(CERTS_DIR, exist_ok=True)
-    
-    if not os.path.exists(PRIVATE_KEY_PATH):
-        # Generate new RSA key pair
-        private_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=2048,
-            backend=default_backend()
-        )
-        public_key = private_key.public_key()
-        
-        with open(PRIVATE_KEY_PATH, "wb") as f:
-            f.write(private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            ))
-            
-        with open(PUBLIC_KEY_PATH, "wb") as f:
-            f.write(public_key.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            ))
-            
-    # Load keys
-    with open(PRIVATE_KEY_PATH, "rb") as f:
+    if getattr(settings, "JWT_PRIVATE_KEY_PEM", None) and getattr(settings, "JWT_PUBLIC_KEY_PEM", None):
         _private_key = serialization.load_pem_private_key(
-            f.read(),
+            settings.JWT_PRIVATE_KEY_PEM.encode("utf-8"),
             password=None,
             backend=default_backend()
         )
-        
-    with open(PUBLIC_KEY_PATH, "rb") as f:
         _public_key = serialization.load_pem_public_key(
-            f.read(),
+            settings.JWT_PUBLIC_KEY_PEM.encode("utf-8"),
             backend=default_backend()
         )
+    else:
+        # Fallback to local files for development
+        os.makedirs(CERTS_DIR, exist_ok=True)
+        
+        if not os.path.exists(PRIVATE_KEY_PATH):
+            import logging
+            logging.getLogger(__name__).warning(
+                "JWT_PRIVATE_KEY_PEM not found in environment. "
+                "Generating new local RSA keys. WARNING: This breaks horizontal scaling!"
+            )
+            # Generate new RSA key pair
+            private_key = rsa.generate_private_key(
+                public_exponent=65537,
+                key_size=2048,
+                backend=default_backend()
+            )
+            public_key = private_key.public_key()
+            
+            with open(PRIVATE_KEY_PATH, "wb") as f:
+                f.write(private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.PKCS8,
+                    encryption_algorithm=serialization.NoEncryption()
+                ))
+                
+            with open(PUBLIC_KEY_PATH, "wb") as f:
+                f.write(public_key.public_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PublicFormat.SubjectPublicKeyInfo
+                ))
+                
+        # Load keys
+        with open(PRIVATE_KEY_PATH, "rb") as f:
+            _private_key = serialization.load_pem_private_key(
+                f.read(),
+                password=None,
+                backend=default_backend()
+            )
+            
+        with open(PUBLIC_KEY_PATH, "rb") as f:
+            _public_key = serialization.load_pem_public_key(
+                f.read(),
+                backend=default_backend()
+            )
         
     # Generate JWKS
     pn = _public_key.public_numbers()

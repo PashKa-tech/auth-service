@@ -161,8 +161,9 @@ async def verify_mfa_token(token: str) -> dict | None:
 
 def verify_pkce(verifier: str, challenge: str, method: str = "S256") -> bool:
     """Verify code_verifier against code_challenge using challenge method."""
+    import secrets
     if method == "plain":
-        return verifier == challenge
+        return secrets.compare_digest(verifier, challenge)
     elif method == "S256":
         import hashlib
         import base64
@@ -170,7 +171,7 @@ def verify_pkce(verifier: str, challenge: str, method: str = "S256") -> bool:
         hashed = hashlib.sha256(verifier.encode("utf-8")).digest()
         # Base64url encode and remove padding
         calculated = base64.urlsafe_b64encode(hashed).decode("utf-8").replace("=", "")
-        return calculated == challenge
+        return secrets.compare_digest(calculated, challenge)
     return False
 
 async def check_pwned_password(password: str) -> bool:
@@ -182,14 +183,21 @@ async def check_pwned_password(password: str) -> bool:
     prefix, suffix = sha1[:5], sha1[5:]
     
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"https://api.pwnedpasswords.com/range/{prefix}")
-            if resp.status_code == 200:
-                # The response contains suffix:count lines
-                hashes = (line.split(':') for line in resp.text.splitlines())
-                for h, count in hashes:
-                    if h == suffix:
-                        return True # Found in breach
+        from src.core import http_client as http_client_module
+        client_to_use = http_client_module.http_client
+        
+        if client_to_use:
+            resp = await client_to_use.get(f"https://api.pwnedpasswords.com/range/{prefix}")
+        else:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.get(f"https://api.pwnedpasswords.com/range/{prefix}")
+                
+        if resp.status_code == 200:
+            # The response contains suffix:count lines
+            hashes = (line.split(':') for line in resp.text.splitlines())
+            for h, count in hashes:
+                if h == suffix:
+                    return True # Found in breach
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Failed to check HaveIBeenPwned: {e}")

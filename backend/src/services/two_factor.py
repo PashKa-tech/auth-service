@@ -115,10 +115,11 @@ class TwoFactorService:
                 return True
 
         # 2. Try Backup code
+        import secrets
         code_hash = hash_backup_code(code)
         unused_codes = await self.two_factor_repo.get_unused_codes(user.id)
         for backup_code in unused_codes:
-            if backup_code.code_hash == code_hash:
+            if secrets.compare_digest(backup_code.code_hash, code_hash):
                 # Mark backup code as used
                 await self.two_factor_repo.use_code(backup_code)
                 await self.user_repo.db.commit()

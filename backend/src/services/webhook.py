@@ -16,6 +16,7 @@ import asyncio
 from src.models.webhook import WebhookEndpoint, WebhookDelivery
 from src.core.logging import logger
 from src.database import async_session_factory
+from src.core.queue import get_arq_pool
 
 async def deliver_webhook_background(delivery_id: uuid.UUID):
     try:
@@ -48,13 +49,23 @@ async def deliver_webhook_background(delivery_id: uuid.UUID):
             delivery.attempt_count += 1
             
             try:
-                # Use global http_client if available, otherwise fallback (tests)
-                client_to_use = http_client if http_client else httpx.AsyncClient(timeout=10.0)
-                response = await client_to_use.post(
-                    endpoint.url,
-                    json=delivery.payload,
-                    headers=headers
-                )
+                from src.core import http_client as http_client_module
+                client_to_use = http_client_module.http_client
+                
+                if client_to_use:
+                    response = await client_to_use.post(
+                        endpoint.url,
+                        json=delivery.payload,
+                        headers=headers
+                    )
+                else:
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        response = await client.post(
+                            endpoint.url,
+                            json=delivery.payload,
+                            headers=headers
+                        )
+                        
                 response.raise_for_status()
                     
                 delivery.status = "success"
@@ -62,11 +73,12 @@ async def deliver_webhook_background(delivery_id: uuid.UUID):
             except Exception as e:
                 delivery.status = "failed"
                 delivery.last_error = str(e)
-                
-            db.add(delivery)
-            await db.commit()
-    except Exception as e:
-        logger.error(f"Failed to execute background webhook delivery: {e}")
+                db.add(delivery)
+                await db.commit()
+                raise  # Raise so arq handles it
+        except Exception as e:
+            logger.error(f"Failed to execute background webhook delivery: {e}")
+            raise
 
 
 class WebhookService:
@@ -110,10 +122,13 @@ class WebhookService:
         """
         Dispatches an event to all subscribed webhook endpoints for a given tenant.
         """
-        result = await self.db.stream(
+        result = await self.db.execute(
             select(WebhookEndpoint).where(WebhookEndpoint.tenant_id == tenant_id)
         )
-        async for endpoint in result.scalars():
+        endpoints = result.scalars().all()
+        
+        deliveries = []
+        for endpoint in endpoints:
             if not endpoint.events_list or event_type in endpoint.events_list or "*" in endpoint.events_list:
                 delivery = WebhookDelivery(
                     endpoint_id=endpoint.id,
@@ -122,7 +137,15 @@ class WebhookService:
                     attempt_count=0
                 )
                 self.db.add(delivery)
-                await self.db.commit()
+                deliveries.append(delivery)
+                
+        if deliveries:
+            await self.db.commit()
+            
+            pool = await get_arq_pool()
+            for delivery in deliveries:
                 await self.db.refresh(delivery)
-
-                background_tasks.add_task(deliver_webhook_background, delivery.id)
+                if pool:
+                    await pool.enqueue_job('dispatch_webhook_task', str(delivery.id))
+                else:
+                    background_tasks.add_task(deliver_webhook_background, delivery.id)

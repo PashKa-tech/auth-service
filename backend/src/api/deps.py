@@ -475,7 +475,7 @@ class PermissionChecker:
                 .where(UserRole.user_id == current_user.id)
                 .where(Role.tenant_id == current_user.tenant_id)
             )
-            permissions = [row[0] for row in result.all()]
+            permissions = list(result.scalars().all())
             await redis_client.set(cache_key, json.dumps(permissions), ex=3600)
             
         if self.required_permission not in permissions:

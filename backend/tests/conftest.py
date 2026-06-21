@@ -9,11 +9,16 @@ from typing import AsyncGenerator
 import pytest
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool
 from src.config import settings
 
+# Start Postgres Testcontainer
+from testcontainers.postgres import PostgresContainer
+postgres_container = PostgresContainer("postgres:15-alpine")
+postgres_container.start()
+
 # Override settings for testing
-TEST_DB_URL = "sqlite+aiosqlite:///file:testmemdb?mode=memory&cache=shared&uri=true"
+TEST_DB_URL = postgres_container.get_connection_url(driver="asyncpg")
 settings.DATABASE_URL = TEST_DB_URL
 settings.ENV = "testing"
 settings.USE_FAKEREDIS = True
@@ -36,11 +41,10 @@ from src.database import Base, get_db
 from src.models.tenant import Tenant
 from src.main import app
 
-# Create async engine with shared cache
+# Create async engine
 test_engine = create_async_engine(
-    TEST_DB_URL, 
-    connect_args={"check_same_thread": False, "timeout": 15},
-    poolclass=StaticPool
+    TEST_DB_URL,
+    poolclass=NullPool
 )
 TestSessionLocal = async_sessionmaker(
     bind=test_engine,
@@ -66,9 +70,6 @@ async def reset_redis_client():
 @pytest.fixture(scope="session", autouse=True)
 async def setup_test_db():
     """Create all tables and seed a default test tenant."""
-    # Keep one connection open to prevent SQLite from dropping the shared in-memory database
-    keep_alive_conn = await test_engine.connect()
-    
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         
@@ -96,11 +97,10 @@ async def setup_test_db():
             
     yield
     
-    await keep_alive_conn.close()
-    
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await test_engine.dispose()
+    postgres_container.stop()
 
 @pytest.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:

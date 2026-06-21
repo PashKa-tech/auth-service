@@ -13,6 +13,7 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     ip_address: Mapped[str | None] = mapped_column(String(45)) # Max length for IPv6
     location: Mapped[str | None] = mapped_column(String(255)) # e.g. "Berlin, Germany"

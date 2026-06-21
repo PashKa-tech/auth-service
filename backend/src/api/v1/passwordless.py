@@ -31,8 +31,9 @@ async def start_passwordless(
 ):
     """Initiates passwordless login by sending a magic link to the user's email."""
     # Find user
+    from sqlalchemy import func
     email_lower = body.email.lower()
-    res = await db.execute(select(User).where(User.email == email_lower, User.tenant_id == tenant_id))
+    res = await db.execute(select(User).where(func.lower(User.email) == email_lower, User.tenant_id == tenant_id))
     user = res.scalar_one_or_none()
     
     if not user:

@@ -44,7 +44,7 @@ class CaptchaService:
     async def generate_custom_captcha(self) -> dict:
         """Generates a custom SVG captcha and stores the answer in Redis."""
         chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-        text = "".join(random.choice(chars) for _ in range(5))
+        text = "".join(random.choices(chars, k=5))
         svg_b64 = self._generate_svg(text)
         
         captcha_id = str(uuid.uuid4())
@@ -86,13 +86,22 @@ class CaptchaService:
             if not settings.GOOGLE_RECAPTCHA_SECRET:
                 return True # Skip if not configured
                 
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.post("https://www.google.com/recaptcha/api/siteverify", data={
-                    "secret": settings.GOOGLE_RECAPTCHA_SECRET,
-                    "response": captcha_token,
-                    "remoteip": ip_address
-                })
-                data = resp.json()
+            from src.core import http_client as http_client_module
+            client_to_use = http_client_module.http_client
+            
+            post_data = {
+                "secret": settings.GOOGLE_RECAPTCHA_SECRET,
+                "response": captcha_token,
+                "remoteip": ip_address
+            }
+            
+            if client_to_use:
+                resp = await client_to_use.post("https://www.google.com/recaptcha/api/siteverify", data=post_data)
+            else:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.post("https://www.google.com/recaptcha/api/siteverify", data=post_data)
+                    
+            data = resp.json()
                 if not data.get("success"):
                     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Google reCAPTCHA")
                     

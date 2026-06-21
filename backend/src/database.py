@@ -1,7 +1,7 @@
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import event, NullPool
+from sqlalchemy import event, AsyncAdaptedQueuePool
 from src.config import settings
 
 # Create Async Engine
@@ -9,7 +9,9 @@ if not settings.DATABASE_URL.startswith("sqlite"):
     engine = create_async_engine(
         settings.DATABASE_URL,
         echo=False,
-        poolclass=NullPool,
+        poolclass=AsyncAdaptedQueuePool,
+        pool_size=10,
+        max_overflow=10,
         connect_args={
             "server_settings": {"jit": "off"},
             "prepared_statement_cache_size": 0,

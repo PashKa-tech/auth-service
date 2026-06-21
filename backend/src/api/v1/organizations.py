@@ -162,60 +162,16 @@ class AcceptInviteRequest(BaseModel):
     token: str
     password: str
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from src.database import get_db
-
 @router.post("/invites/accept", response_model=UnifiedResponse)
 async def accept_invite(
     req: AcceptInviteRequest,
-    db: AsyncSession = Depends(get_db)
+    tenant_service: TenantService = Depends(get_tenant_service)
 ) -> UnifiedResponse:
-    import hashlib
-    from datetime import datetime, timezone
-    from src.models.tenant import OrganizationInvite
-    from src.models.user import User as DBUser
-    from src.core.security import hash_password
-    from sqlalchemy import select
-    
-    token_hash = hashlib.sha256(req.token.encode("utf-8")).hexdigest()
-    
-    result = await db.execute(
-        select(OrganizationInvite).where(OrganizationInvite.token_hash == token_hash)
-    )
-    invite = result.scalar_one_or_none()
-    
-    if not invite:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid or expired invitation token")
-        
-    if invite.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation has expired")
-
-    # Check if user already exists in this tenant
-    res_user = await db.execute(
-        select(DBUser).where(DBUser.tenant_id == invite.tenant_id, DBUser.email == invite.email)
-    )
-    if res_user.scalar_one_or_none():
-        # They are already a member! Just delete the invite.
-        await db.delete(invite)
-        await db.commit()
-        return UnifiedResponse(success=True, message="You are already a member of this organization. You can now login.")
-
-    # Create the user
-    password_hash = await hash_password(req.password)
-    new_user = DBUser(
-        tenant_id=invite.tenant_id,
-        email=invite.email,
-        password_hash=password_hash,
-        role=invite.role,
-        is_verified=True # Email is verified because they received the invite
-    )
-    db.add(new_user)
-    
-    # Delete the invite
-    await db.delete(invite)
-    await db.commit()
-    
-    return UnifiedResponse(success=True, message="Invitation accepted successfully. You can now login.")
+    try:
+        msg = await tenant_service.accept_invite(req.token, req.password)
+        return UnifiedResponse(success=True, message=msg)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 from src.database import get_db
 

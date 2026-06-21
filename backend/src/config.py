@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     
     # Security/JWT (Secret Key for HS256)
     JWT_SECRET_KEY: str = Field(default="dev_jwt_secret_key_change_me_in_production")
+    JWT_PRIVATE_KEY_PEM: str | None = None
+    JWT_PUBLIC_KEY_PEM: str | None = None
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7

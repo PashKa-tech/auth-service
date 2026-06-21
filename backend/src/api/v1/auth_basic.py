@@ -31,10 +31,6 @@ async def register(
     if await is_rate_limited(global_limit_key, 1000):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Tenant rate limit exceeded")
 
-    from src.core.security import check_pwned_password
-    if await check_pwned_password(body.password):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This password has appeared in a data breach. Please choose a different password.")
-
     try:
         user = await auth_service.register_user(body.email, body.password)
         return UnifiedResponse(
@@ -117,8 +113,8 @@ async def refresh(
         ua = request.headers.get("User-Agent")
         lang = request.headers.get("Accept-Language")
         
-        import hashlib
-        token_hash = hashlib.sha256(refresh_token.encode("utf-8")).hexdigest()
+        from src.core.security import hash_opaque_token
+        token_hash = hash_opaque_token(refresh_token)
         refresh_limit_key = f"refresh_limit:{tenant_id}:{token_hash}"
         if await is_rate_limited(refresh_limit_key, 10):
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded")

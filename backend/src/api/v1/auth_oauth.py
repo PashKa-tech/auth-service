@@ -20,6 +20,7 @@ router = APIRouter()
 
 @router.post("/oauth/token", response_model=UnifiedResponse)
 async def exchange_oauth_token(
+    request: Request,
     request_data: OAuthTokenRequest,
     auth_service: AuthService = Depends(get_auth_service)
 ):
@@ -49,29 +50,32 @@ async def exchange_oauth_token(
     tenant_id = uuid.UUID(code_data["tenant_id"])
     role = code_data["role"]
 
-    session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    # We could collect IP/UA here too
-    session = await auth_service.session_repo.create(
-        user_id=user_id,
-        expires_at=session_expiry,
-        ip_address=None,
-        user_agent=None,
-        device_fingerprint=None
-    )
+    ip = get_client_ip(request)
+    ua = request.headers.get("User-Agent")
+    lang = request.headers.get("Accept-Language")
+
     user = await auth_service.user_repo.get_by_id(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         
     try:
-        access_token, raw_refresh = await auth_service._issue_tokens(user, session)
+        login_result = await auth_service._finalize_login(user, ip, ua, lang)
+        if login_result.requires_2fa:
+            return UnifiedResponse(
+                success=True,
+                data={
+                    "requires_2fa": True,
+                    "mfa_token": login_result.mfa_token
+                }
+            )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
 
     return UnifiedResponse(
         success=True,
         data={
-            "access_token": access_token,
-            "refresh_token": raw_refresh,
+            "access_token": login_result.access_token,
+            "refresh_token": login_result.refresh_token,
             "token_type": "Bearer",
             "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         }
@@ -372,7 +376,7 @@ async def unlink_account(
     has_password = current_user.password_hash is not None
     linked_accounts = await oauth_service.oauth_repo.list_by_user(current_user.id)
     
-    other_oauth_exists = len([a for a in linked_accounts if a.provider != provider]) > 0
+    other_oauth_exists = any(a.provider != provider for a in linked_accounts)
     
     if not has_password and not other_oauth_exists:
         raise HTTPException(

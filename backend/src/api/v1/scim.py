@@ -120,10 +120,11 @@ async def create_user(
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """SCIM: Provision a new User"""
+    from sqlalchemy import func
     email = body.userName.lower()
     
     # Check if exists
-    res = await db.execute(select(User).where(User.email == email, User.tenant_id == tenant_id))
+    res = await db.execute(select(User).where(func.lower(User.email) == email, User.tenant_id == tenant_id))
     if res.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="User already exists")
         

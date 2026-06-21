@@ -6,16 +6,15 @@ from src.repositories.base import TenantScopedRepository
 
 class TwoFactorRepository(TenantScopedRepository):
     async def create_codes(self, user_id: uuid.UUID, code_hashes: list[str]) -> list[TwoFactorBackupCode]:
-        codes = []
-        for code_hash in code_hashes:
-            code = TwoFactorBackupCode(
+        codes = [
+            TwoFactorBackupCode(
                 user_id=user_id,
                 tenant_id=self.tenant_id,
                 code_hash=code_hash,
                 is_used=False
-            )
-            self.db.add(code)
-            codes.append(code)
+            ) for code_hash in code_hashes
+        ]
+        self.db.add_all(codes)
         await self.db.flush()
         return codes
 

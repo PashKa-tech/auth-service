@@ -11,10 +11,17 @@ from src.database import async_session_factory
 async def fetch_and_update_geoip(session_id: uuid.UUID, ip_address: str):
     try:
         from sqlalchemy import update
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get(f"http://ip-api.com/json/{ip_address}")
-            if resp.status_code == 200:
-                data = resp.json()
+        from src.core import http_client as http_client_module
+        client_to_use = http_client_module.http_client
+        
+        if client_to_use:
+            resp = await client_to_use.get(f"http://ip-api.com/json/{ip_address}")
+        else:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(f"http://ip-api.com/json/{ip_address}")
+                
+        if resp.status_code == 200:
+            data = resp.json()
                 if data.get("status") == "success":
                     city = data.get("city", "")
                     country = data.get("country", "")

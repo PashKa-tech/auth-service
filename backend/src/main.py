@@ -10,7 +10,7 @@ from src.config import settings
 from src.core.logging import setup_logging, logger
 from src.core.context import set_request_id, get_request_id, set_tenant_id
 from src.core.redis import init_redis, close_redis
-from src.core.tasks import start_garbage_collector, stop_garbage_collector
+from src.core.queue import init_arq, close_arq
 from src.core.metrics import REQUEST_LATENCY, http_requests_total, auth_failures_total
 from src.core.http_client import init_http_client, close_http_client
 from src.api.v1.auth import router as auth_router
@@ -35,12 +35,12 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up Auth Service...")
     await init_redis()
     await init_http_client()
-    start_garbage_collector()
+    await init_arq()
     yield
     # Shutdown
     logger.info("Shutting down Auth Service...")
-    await stop_garbage_collector()
     await close_http_client()
+    await close_arq()
     await close_redis()
 
 app = FastAPI(
@@ -53,6 +53,9 @@ app = FastAPI(
 
 from src.core.tracing import init_tracing
 init_tracing(app)
+
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
 app.add_middleware(
     CORSMiddleware,
@@ -174,6 +177,43 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
                 "code": "VALIDATION_ERROR",
                 "message": "Request validation failed",
                 "details": details
+            },
+            "meta": {"version": "v1", "request_id": get_request_id()}
+        }
+    )
+
+import aiosmtplib
+from sqlalchemy.exc import IntegrityError
+
+@app.exception_handler(IntegrityError)
+async def integrity_exception_handler(request: Request, exc: IntegrityError):
+    logger.exception(f"Database integrity error: {str(exc)}")
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={
+            "success": False,
+            "data": None,
+            "error": {
+                "code": "CONFLICT",
+                "message": "A resource conflict occurred (e.g. duplicate data).",
+                "details": {}
+            },
+            "meta": {"version": "v1", "request_id": get_request_id()}
+        }
+    )
+
+@app.exception_handler(aiosmtplib.SMTPException)
+async def smtp_exception_handler(request: Request, exc: aiosmtplib.SMTPException):
+    logger.exception(f"SMTP error: {str(exc)}")
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "success": False,
+            "data": None,
+            "error": {
+                "code": "SERVICE_UNAVAILABLE",
+                "message": "Email service is temporarily unavailable.",
+                "details": {}
             },
             "meta": {"version": "v1", "request_id": get_request_id()}
         }

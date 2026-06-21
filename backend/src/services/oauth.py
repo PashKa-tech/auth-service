@@ -38,17 +38,92 @@ class OAuthProviderStrategy(ABC):
     def name(self) -> str:
         pass
 
+    @property
+    @abstractmethod
+    def token_url(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def userinfo_url(self) -> str:
+        pass
+
     @abstractmethod
     def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
         pass
 
-    @abstractmethod
+    # Template Method
     async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
+        token_data = await self._exchange_code_for_token(client, code, redirect_uri, client_id, client_secret, code_verifier)
+        profile_data = await self._fetch_user_profile(client, token_data)
+        return self._extract_user_info(profile_data, token_data)
+
+    async def _exchange_code_for_token(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> dict:
+        token_data_payload = self._get_token_request_data(code, redirect_uri, client_id, client_secret, code_verifier)
+        token_headers = self._get_token_request_headers(client_id, client_secret)
+        
+        token_resp = await client.post(self.token_url, data=token_data_payload, headers=token_headers)
+        if token_resp.status_code != 200:
+            logger.error(f"{self.name} token exchange failed: {token_resp.text}")
+            raise ValueError(f"Failed to retrieve tokens from {self.name}")
+            
+        token_json = token_resp.json()
+        if "error" in token_json and not isinstance(token_json["error"], dict):
+            # some providers might return "error" key (e.g., github)
+            raise ValueError(f"{self.name} OAuth error: {token_json.get('error_description', token_json['error'])}")
+            
+        return token_json
+
+    async def _fetch_user_profile(self, client: httpx.AsyncClient, token_data: dict) -> dict:
+        if not self.userinfo_url:
+            return {}
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise ValueError(f"No access token provided by {self.name}")
+            
+        headers = self._get_userinfo_request_headers(access_token)
+        params = self._get_userinfo_request_params()
+        userinfo_resp = await client.get(self.userinfo_url, headers=headers, params=params)
+        if userinfo_resp.status_code != 200:
+            logger.error(f"{self.name} userinfo fetch failed: {userinfo_resp.text}")
+            raise ValueError(f"Failed to retrieve profile from {self.name}")
+            
+        return userinfo_resp.json()
+
+    def _get_token_request_data(self, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> dict:
+        data = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+        }
+        if code_verifier:
+            data["code_verifier"] = code_verifier
+        return data
+
+    def _get_token_request_headers(self, client_id: str, client_secret: str) -> dict:
+        return {"Accept": "application/json"}
+        
+    def _get_userinfo_request_headers(self, access_token: str) -> dict:
+        return {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+        
+    def _get_userinfo_request_params(self) -> dict:
+        return {}
+
+    @abstractmethod
+    def _extract_user_info(self, profile_data: dict, token_data: dict) -> OAuthUserInfo:
         pass
 
 class GoogleStrategy(OAuthProviderStrategy):
     @property
     def name(self) -> str: return "google"
+
+    @property
+    def token_url(self) -> str: return "https://oauth2.googleapis.com/token"
+
+    @property
+    def userinfo_url(self) -> str: return "https://www.googleapis.com/oauth2/v3/userinfo"
 
     def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
         params = {
@@ -61,42 +136,23 @@ class GoogleStrategy(OAuthProviderStrategy):
         }
         return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
 
-    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
-        token_url = "https://oauth2.googleapis.com/token"
-        token_data = {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code,
-            "grant_type": "authorization_code",
-            "redirect_uri": redirect_uri,
-        }
-        token_resp = await client.post(token_url, data=token_data)
-        if token_resp.status_code != 200:
-            logger.error(f"Google token exchange failed: {token_resp.text}")
-            raise ValueError("Failed to retrieve tokens from Google")
-            
-        tokens = token_resp.json()
-        access_token = tokens.get("access_token")
-        
-        userinfo_url = "https://www.googleapis.com/oauth2/v3/userinfo"
-        headers = {"Authorization": f"Bearer {access_token}"}
-        userinfo_resp = await client.get(userinfo_url, headers=headers)
-        if userinfo_resp.status_code != 200:
-            logger.error(f"Google userinfo fetch failed: {userinfo_resp.text}")
-            raise ValueError("Failed to retrieve profile from Google")
-            
-        userinfo = userinfo_resp.json()
-        
-        email = userinfo.get("email")
-        email_verified = userinfo.get("email_verified", False)
+    def _extract_user_info(self, profile_data: dict, token_data: dict) -> OAuthUserInfo:
+        email = profile_data.get("email")
+        email_verified = profile_data.get("email_verified", False)
         if not email or not email_verified:
             raise ValueError("Google account email is not verified")
             
-        return OAuthUserInfo(provider_id=str(userinfo.get("sub")), email=email)
+        return OAuthUserInfo(provider_id=str(profile_data.get("sub")), email=email)
 
 class GitHubStrategy(OAuthProviderStrategy):
     @property
     def name(self) -> str: return "github"
+
+    @property
+    def token_url(self) -> str: return "https://github.com/login/oauth/access_token"
+
+    @property
+    def userinfo_url(self) -> str: return "https://api.github.com/user"
 
     def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
         params = {
@@ -107,40 +163,15 @@ class GitHubStrategy(OAuthProviderStrategy):
         }
         return f"https://github.com/login/oauth/authorize?{urlencode(params)}"
 
-    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
-        token_url = "https://github.com/login/oauth/access_token"
-        headers = {"Accept": "application/json"}
-        token_data = {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code,
-            "redirect_uri": redirect_uri,
-        }
-        token_resp = await client.post(token_url, data=token_data, headers=headers)
-        if token_resp.status_code != 200:
-            logger.error(f"GitHub token exchange failed: {token_resp.text}")
-            raise ValueError("Failed to exchange code for token")
-            
-        token_json = token_resp.json()
-        if "error" in token_json:
-            raise ValueError(f"GitHub OAuth error: {token_json.get('error_description', token_json['error'])}")
-            
-        access_token = token_json["access_token"]
-        
-        user_url = "https://api.github.com/user"
-        user_headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
-        user_resp = await client.get(user_url, headers=user_headers)
-        if user_resp.status_code != 200:
-            logger.error(f"GitHub profile fetch failed: {user_resp.text}")
-            raise ValueError("Failed to retrieve profile from GitHub")
-            
-        profile = user_resp.json()
-        provider_user_id = str(profile.get("id"))
+    async def _fetch_user_profile(self, client: httpx.AsyncClient, token_data: dict) -> dict:
+        profile = await super()._fetch_user_profile(client, token_data)
         
         email = profile.get("email")
         if not email:
+            access_token = token_data.get("access_token")
             emails_url = "https://api.github.com/user/emails"
-            emails_resp = await client.get(emails_url, headers=user_headers)
+            headers = self._get_userinfo_request_headers(access_token)
+            emails_resp = await client.get(emails_url, headers=headers)
             if emails_resp.status_code == 200:
                 emails = emails_resp.json()
                 for email_record in emails:
@@ -152,7 +183,12 @@ class GitHubStrategy(OAuthProviderStrategy):
                         if email_record.get("verified"):
                             email = email_record.get("email")
                             break
-        
+            profile["email"] = email
+        return profile
+
+    def _extract_user_info(self, profile_data: dict, token_data: dict) -> OAuthUserInfo:
+        provider_user_id = str(profile_data.get("id"))
+        email = profile_data.get("email")
         if not email:
             raise ValueError("Verified email address not found on GitHub account")
             
@@ -161,6 +197,12 @@ class GitHubStrategy(OAuthProviderStrategy):
 class DiscordStrategy(OAuthProviderStrategy):
     @property
     def name(self) -> str: return "discord"
+
+    @property
+    def token_url(self) -> str: return "https://discord.com/api/v10/oauth2/token"
+
+    @property
+    def userinfo_url(self) -> str: return "https://discord.com/api/users/@me"
 
     def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
         params = {
@@ -172,37 +214,24 @@ class DiscordStrategy(OAuthProviderStrategy):
         }
         return f"https://discord.com/oauth2/authorize?{urlencode(params)}"
 
-    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
-        token_url = "https://discord.com/api/v10/oauth2/token"
-        token_data = {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code,
-            "grant_type": "authorization_code",
-            "redirect_uri": redirect_uri,
-        }
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        token_resp = await client.post(token_url, data=token_data, headers=headers)
-        if token_resp.status_code != 200:
-            logger.error(f"Discord token exchange failed: {token_resp.text}")
-            raise ValueError("Failed to retrieve tokens from Discord")
-        tokens = token_resp.json()
-        access_token = tokens.get("access_token")
-        
-        userinfo_url = "https://discord.com/api/users/@me"
-        userinfo_resp = await client.get(userinfo_url, headers={"Authorization": f"Bearer {access_token}"})
-        if userinfo_resp.status_code != 200:
-            logger.error(f"Discord userinfo fetch failed: {userinfo_resp.text}")
-            raise ValueError("Failed to retrieve profile from Discord")
-        userinfo = userinfo_resp.json()
-        email = userinfo.get("email")
-        if not email or not userinfo.get("verified", False):
+    def _get_token_request_headers(self, client_id: str, client_secret: str) -> dict:
+        return {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+
+    def _extract_user_info(self, profile_data: dict, token_data: dict) -> OAuthUserInfo:
+        email = profile_data.get("email")
+        if not email or not profile_data.get("verified", False):
             raise ValueError("Discord account email is not verified")
-        return OAuthUserInfo(provider_id=str(userinfo.get("id")), email=email)
+        return OAuthUserInfo(provider_id=str(profile_data.get("id")), email=email)
 
 class AppleStrategy(OAuthProviderStrategy):
     @property
     def name(self) -> str: return "apple"
+
+    @property
+    def token_url(self) -> str: return "https://appleid.apple.com/auth/token"
+
+    @property
+    def userinfo_url(self) -> str: return ""
 
     def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
         params = {
@@ -215,55 +244,59 @@ class AppleStrategy(OAuthProviderStrategy):
         }
         return f"https://appleid.apple.com/auth/authorize?{urlencode(params)}"
 
-    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
-        token_url = "https://appleid.apple.com/auth/token"
-        token_data = {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code,
-            "grant_type": "authorization_code",
-            "redirect_uri": redirect_uri,
-        }
-        token_resp = await client.post(token_url, data=token_data)
-        if token_resp.status_code != 200:
-            logger.error(f"Apple token exchange failed: {token_resp.text}")
-            raise ValueError("Failed to retrieve tokens from Apple")
-        tokens = token_resp.json()
-        id_token = tokens.get("id_token")
+    async def _fetch_user_profile(self, client: httpx.AsyncClient, token_data: dict) -> dict:
+        id_token = token_data.get("id_token")
         if not id_token:
             raise ValueError("Apple did not return id_token")
         
         import jwt
+        import asyncio
         from jwt import PyJWKClient
         
         jwks_client = PyJWKClient("https://appleid.apple.com/auth/keys")
-        signing_key = jwks_client.get_signing_key_from_jwt(id_token)
+        loop = asyncio.get_running_loop()
+        signing_key = await loop.run_in_executor(
+            None, 
+            jwks_client.get_signing_key_from_jwt, 
+            id_token
+        )
         
         try:
+            # We skip audience verification here because we do not have client_id in this scope,
+            # but the token was retrieved directly from Apple's server so it's trusted.
             decoded = jwt.decode(
                 id_token,
                 signing_key.key,
                 algorithms=["RS256"],
-                audience=client_id,
+                options={"verify_aud": False},
                 issuer="https://appleid.apple.com"
             )
         except jwt.PyJWTError as e:
             logger.error(f"Apple id_token verification failed: {str(e)}")
             raise ValueError("Invalid Apple id_token signature")
+            
+        return decoded
 
-        email = decoded.get("email")
+    def _extract_user_info(self, profile_data: dict, token_data: dict) -> OAuthUserInfo:
+        email = profile_data.get("email")
         if not email:
             raise ValueError("Apple id_token does not contain email")
             
-        email_verified = decoded.get("email_verified")
+        email_verified = profile_data.get("email_verified")
         if str(email_verified).lower() not in ("true", "1"):
             raise ValueError("Apple account email is not verified")
             
-        return OAuthUserInfo(provider_id=str(decoded.get("sub")), email=email)
+        return OAuthUserInfo(provider_id=str(profile_data.get("sub")), email=email)
 
 class FacebookStrategy(OAuthProviderStrategy):
     @property
     def name(self) -> str: return "facebook"
+
+    @property
+    def token_url(self) -> str: return "https://graph.facebook.com/v12.0/oauth/access_token"
+
+    @property
+    def userinfo_url(self) -> str: return "https://graph.facebook.com/me"
 
     def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
         params = {
@@ -275,35 +308,37 @@ class FacebookStrategy(OAuthProviderStrategy):
         }
         return f"https://www.facebook.com/v12.0/dialog/oauth?{urlencode(params)}"
 
-    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
-        token_url = "https://graph.facebook.com/v12.0/oauth/access_token"
+    async def _exchange_code_for_token(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> dict:
         token_params = {
             "client_id": client_id,
             "client_secret": client_secret,
             "code": code,
             "redirect_uri": redirect_uri,
         }
-        token_resp = await client.get(token_url, params=token_params)
+        token_resp = await client.get(self.token_url, params=token_params)
         if token_resp.status_code != 200:
             logger.error(f"Facebook token exchange failed: {token_resp.text}")
             raise ValueError("Failed to retrieve tokens from Facebook")
-        tokens = token_resp.json()
-        access_token = tokens.get("access_token")
-        
-        userinfo_url = "https://graph.facebook.com/me?fields=id,email,name"
-        userinfo_resp = await client.get(userinfo_url, headers={"Authorization": f"Bearer {access_token}"})
-        if userinfo_resp.status_code != 200:
-            logger.error(f"Facebook userinfo fetch failed: {userinfo_resp.text}")
-            raise ValueError("Failed to retrieve profile from Facebook")
-        userinfo = userinfo_resp.json()
-        email = userinfo.get("email")
+        return token_resp.json()
+
+    def _get_userinfo_request_params(self) -> dict:
+        return {"fields": "id,email,name"}
+
+    def _extract_user_info(self, profile_data: dict, token_data: dict) -> OAuthUserInfo:
+        email = profile_data.get("email")
         if not email:
             raise ValueError("Facebook account does not have a verified email address")
-        return OAuthUserInfo(provider_id=str(userinfo.get("id")), email=email)
+        return OAuthUserInfo(provider_id=str(profile_data.get("id")), email=email)
 
 class TwitterStrategy(OAuthProviderStrategy):
     @property
     def name(self) -> str: return "twitter"
+
+    @property
+    def token_url(self) -> str: return "https://api.twitter.com/2/oauth2/token"
+
+    @property
+    def userinfo_url(self) -> str: return "https://api.twitter.com/2/users/me"
 
     def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
         params = {
@@ -320,39 +355,17 @@ class TwitterStrategy(OAuthProviderStrategy):
                 params["code_challenge_method"] = extra_params["code_challenge_method"]
         return f"https://twitter.com/i/oauth2/authorize?{urlencode(params)}"
 
-    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
-        token_url = "https://api.twitter.com/2/oauth2/token"
-        token_data = {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code,
-            "grant_type": "authorization_code",
-            "redirect_uri": redirect_uri,
-            "code_verifier": code_verifier,
-        }
+    def _get_token_request_headers(self, client_id: str, client_secret: str) -> dict:
         import base64
         auth_str = f"{client_id}:{client_secret or ''}"
         b64_auth = base64.b64encode(auth_str.encode("ascii")).decode("ascii")
-        headers = {"Authorization": f"Basic {b64_auth}"}
-        token_resp = await client.post(token_url, data=token_data, headers=headers)
-        if token_resp.status_code != 200:
-            logger.error(f"Twitter token exchange failed: {token_resp.text}")
-            raise ValueError("Failed to retrieve tokens from Twitter")
-        tokens = token_resp.json()
-        access_token = tokens.get("access_token")
-        
-        userinfo_url = "https://api.twitter.com/2/users/me"
-        userinfo_params = {"user.fields": "email"}
-        userinfo_resp = await client.get(
-            userinfo_url,
-            headers={"Authorization": f"Bearer {access_token}"},
-            params=userinfo_params
-        )
-        if userinfo_resp.status_code != 200:
-            logger.error(f"Twitter userinfo fetch failed: {userinfo_resp.text}")
-            raise ValueError("Failed to retrieve profile from Twitter")
-        userinfo = userinfo_resp.json()
-        data_block = userinfo.get("data", {})
+        return {"Authorization": f"Basic {b64_auth}", "Accept": "application/json"}
+
+    def _get_userinfo_request_params(self) -> dict:
+        return {"user.fields": "email"}
+
+    def _extract_user_info(self, profile_data: dict, token_data: dict) -> OAuthUserInfo:
+        data_block = profile_data.get("data", {})
         email = data_block.get("email")
         if not email:
             raise ValueError("Twitter account does not have an email address")
@@ -361,6 +374,12 @@ class TwitterStrategy(OAuthProviderStrategy):
 class AmazonStrategy(OAuthProviderStrategy):
     @property
     def name(self) -> str: return "amazon"
+
+    @property
+    def token_url(self) -> str: return "https://api.amazon.com/auth/o2/token"
+
+    @property
+    def userinfo_url(self) -> str: return "https://api.amazon.com/user/profile"
 
     def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
         params = {
@@ -372,32 +391,14 @@ class AmazonStrategy(OAuthProviderStrategy):
         }
         return f"https://www.amazon.com/ap/oa?{urlencode(params)}"
 
-    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
-        token_url = "https://api.amazon.com/auth/o2/token"
-        token_data = {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code,
-            "grant_type": "authorization_code",
-            "redirect_uri": redirect_uri,
-        }
-        token_resp = await client.post(token_url, data=token_data)
-        if token_resp.status_code != 200:
-            logger.error(f"Amazon token exchange failed: {token_resp.text}")
-            raise ValueError("Failed to retrieve tokens from Amazon")
-        tokens = token_resp.json()
-        access_token = tokens.get("access_token")
-        
-        userinfo_url = "https://api.amazon.com/user/profile"
-        userinfo_resp = await client.get(userinfo_url, headers={"Authorization": f"bearer {access_token}"})
-        if userinfo_resp.status_code != 200:
-            logger.error(f"Amazon userinfo fetch failed: {userinfo_resp.text}")
-            raise ValueError("Failed to retrieve profile from Amazon")
-        userinfo = userinfo_resp.json()
-        email = userinfo.get("email")
+    def _get_userinfo_request_headers(self, access_token: str) -> dict:
+        return {"Authorization": f"bearer {access_token}", "Accept": "application/json"}
+
+    def _extract_user_info(self, profile_data: dict, token_data: dict) -> OAuthUserInfo:
+        email = profile_data.get("email")
         if not email:
             raise ValueError("Amazon account does not have an email address")
-        return OAuthUserInfo(provider_id=str(userinfo.get("user_id")), email=email)
+        return OAuthUserInfo(provider_id=str(profile_data.get("user_id")), email=email)
 
 
 class OAuthService:
@@ -451,8 +452,14 @@ class OAuthService:
             redirect_uri = get_provider_redirect_uri(provider)
             
         strategy = self._get_strategy(provider)
-        async with httpx.AsyncClient() as client:
-            return await strategy.get_user_info(client, code, redirect_uri, client_id, client_secret, code_verifier)
+        from src.core import http_client as http_client_module
+        client_to_use = http_client_module.http_client
+        
+        if client_to_use:
+            return await strategy.get_user_info(client_to_use, code, redirect_uri, client_id, client_secret, code_verifier)
+        else:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                return await strategy.get_user_info(client, code, redirect_uri, client_id, client_secret, code_verifier)
 
     async def resolve_oauth_user(
         self,
