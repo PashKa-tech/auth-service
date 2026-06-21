@@ -15,10 +15,6 @@ export const BrandingSettings: React.FC = () => {
     font_family: 'Inter, sans-serif'
   });
 
-  useEffect(() => {
-    fetchBranding();
-  }, []);
-
   const fetchBranding = async () => {
     try {
       setLoading(true);
@@ -39,6 +35,10 @@ export const BrandingSettings: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchBranding();
+  }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

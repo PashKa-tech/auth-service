@@ -62,6 +62,38 @@ export const PageLoader = ({ text = "Loading..." }: { text?: string }) => (
   </div>
 );
 
+// --- Route Guards ---
+
+// Requires user to be logged in
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user, logout } = useAuth();
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  return <Layout user={user} onLogout={logout}>{children}</Layout>;
+};
+
+// Requires user to be logged in AND have admin role
+const AdminRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user, logout } = useAuth();
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  if (user.role !== 'admin') {
+    return <Navigate to="/profile" replace />;
+  }
+  return <Layout user={user} onLogout={logout}>{children}</Layout>;
+};
+
+// Requires user to be logged out (e.g. login/register pages)
+const GuestRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user } = useAuth();
+  if (user) {
+    return <Navigate to="/profile" replace />;
+  }
+  return <>{children}</>;
+};
+
 export const App: React.FC = () => {
   const { user, isLoading, setUser, logout } = useAuth();
 
@@ -76,35 +108,6 @@ export const App: React.FC = () => {
   if (isLoading) {
     return <PageLoader text="Restoring session..." />;
   }
-
-  // --- Route Guards ---
-
-  // Requires user to be logged in
-  const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-    if (!user) {
-      return <Navigate to="/login" replace />;
-    }
-    return <Layout user={user} onLogout={logout}>{children}</Layout>;
-  };
-
-  // Requires user to be logged in AND have admin role
-  const AdminRoute = ({ children }: { children: React.ReactNode }) => {
-    if (!user) {
-      return <Navigate to="/login" replace />;
-    }
-    if (user.role !== 'admin') {
-      return <Navigate to="/profile" replace />;
-    }
-    return <Layout user={user} onLogout={logout}>{children}</Layout>;
-  };
-
-  // Requires user to be logged out (e.g. login/register pages)
-  const GuestRoute = ({ children }: { children: React.ReactNode }) => {
-    if (user) {
-      return <Navigate to="/profile" replace />;
-    }
-    return <>{children}</>;
-  };
 
   return (
     <BrowserRouter>
