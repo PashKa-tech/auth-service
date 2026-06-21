@@ -49,8 +49,9 @@ class CaptchaService:
         
         captcha_id = str(uuid.uuid4())
         # Store answer with 5 min TTL
-        if redis_module.redis_client:
-            await redis_module.redis_client.set(f"captcha:{captcha_id}", text, ex=300)
+        client = await redis_module.init_redis()
+        if client:
+            await client.set(f"captcha:{captcha_id}", text, ex=300)
             
         return {"captcha_id": captcha_id, "image_data": svg_b64}
 
@@ -65,15 +66,17 @@ class CaptchaService:
         if settings.CAPTCHA_TYPE == "custom":
             if not captcha_id:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Captcha ID is required for custom captcha")
-            if not redis_module.redis_client:
+            
+            client = await redis_module.init_redis()
+            if not client:
                 raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Captcha service unavailable")
                 
-            expected = await redis_module.redis_client.get(f"captcha:{captcha_id}")
+            expected = await client.get(f"captcha:{captcha_id}")
             if not expected:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Captcha expired or invalid ID")
                 
-            # Delete it so it can't be reused
-            await redis_module.redis_client.delete(f"captcha:{captcha_id}")
+            # Verify and delete to prevent reuse
+            await client.delete(f"captcha:{captcha_id}")
             
             if captcha_token.upper().strip() != expected.upper():
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid captcha")

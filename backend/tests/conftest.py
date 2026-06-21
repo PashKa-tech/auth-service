@@ -42,6 +42,12 @@ TEST_API_KEY = "test_developer_key"
 TEST_API_KEY_HASH = hashlib.sha256(TEST_API_KEY.encode("utf-8")).hexdigest()
 
 
+@pytest.fixture(autouse=True)
+async def reset_redis_client():
+    """Reset the global Redis client before tests so FakeRedis binds to the new loop."""
+    from src.core.redis import close_redis
+    await close_redis()
+    yield
 
 @pytest.fixture(scope="session", autouse=True)
 async def setup_test_db():
