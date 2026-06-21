@@ -5,11 +5,17 @@ from sqlalchemy import event
 from src.config import settings
 
 # Create Async Engine
+engine_kwargs = {
+    "echo": settings.ENV == "development"
+}
+
+if not settings.DATABASE_URL.startswith("sqlite"):
+    engine_kwargs["pool_size"] = 50
+    engine_kwargs["max_overflow"] = 100
+
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.ENV == "development",
-    pool_size=50,
-    max_overflow=100
+    **engine_kwargs
 )
 
 # Create Session Factory

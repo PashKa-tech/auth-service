@@ -41,15 +41,7 @@ TEST_TENANT_ID = uuid.uuid4()
 TEST_API_KEY = "test_developer_key"
 TEST_API_KEY_HASH = hashlib.sha256(TEST_API_KEY.encode("utf-8")).hexdigest()
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
+
 
 @pytest.fixture(scope="session", autouse=True)
 async def setup_test_db():
