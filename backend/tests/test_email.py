@@ -14,7 +14,7 @@ async def clean_redis():
     await redis_client.flushdb()
 
 @pytest.mark.asyncio
-async def test_email_verification_flow(client: AsyncClient, db_session):
+async def test_email_verification_flow(client: AsyncClient, db_session, verify_user):
     headers = {"X-Api-Key": TEST_API_KEY}
     email = "verify_test@example.com"
     password = "SuperPassword123!"
@@ -26,6 +26,7 @@ async def test_email_verification_flow(client: AsyncClient, db_session):
         json={"email": email, "password": password}
     )
     assert reg_resp.status_code == 201
+    await verify_user(email)
     user_id = reg_resp.json()["data"]["id"]
 
     # Verify initially not verified
@@ -79,7 +80,7 @@ async def test_email_verification_flow(client: AsyncClient, db_session):
 
 
 @pytest.mark.asyncio
-async def test_password_reset_flow(client: AsyncClient, db_session):
+async def test_password_reset_flow(client: AsyncClient, db_session, verify_user):
     headers = {"X-Api-Key": TEST_API_KEY}
     email = "reset_test@example.com"
     password = "OldPassword123!"
@@ -92,6 +93,7 @@ async def test_password_reset_flow(client: AsyncClient, db_session):
         json={"email": email, "password": password}
     )
     assert reg_resp.status_code == 201
+    await verify_user(email)
     user_id = reg_resp.json()["data"]["id"]
 
     # 2. Request Password Reset
@@ -120,6 +122,7 @@ async def test_password_reset_flow(client: AsyncClient, db_session):
     )
     assert reset_resp.status_code == 200
     assert reset_resp.json()["success"] is True
+    await verify_user(email)
 
     # Verify token is deleted from DB
     deleted_token = await db_session.execute(
@@ -146,7 +149,7 @@ async def test_password_reset_flow(client: AsyncClient, db_session):
 
 
 @pytest.mark.asyncio
-async def test_2fa_email_notifications(client: AsyncClient, db_session, monkeypatch):
+async def test_2fa_email_notifications(client: AsyncClient, db_session, monkeypatch, verify_user):
     from src.services.email import EmailService
     
     sent_emails = []
@@ -165,6 +168,7 @@ async def test_2fa_email_notifications(client: AsyncClient, db_session, monkeypa
         json={"email": email, "password": password}
     )
     assert reg_resp.status_code == 201
+    await verify_user(email)
     
     # 2. Login to get cookies
     login_resp = await client.post(
@@ -231,7 +235,7 @@ async def test_2fa_email_notifications(client: AsyncClient, db_session, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_suspicious_login_email_notification(client: AsyncClient, db_session, monkeypatch):
+async def test_suspicious_login_email_notification(client: AsyncClient, db_session, monkeypatch, verify_user):
     from src.services.email import EmailService
     
     sent_emails = []
@@ -263,6 +267,7 @@ async def test_suspicious_login_email_notification(client: AsyncClient, db_sessi
         json={"email": email, "password": password}
     )
     assert reg_resp.status_code == 201
+    await verify_user(email)
     
     # 2. Login 1 (from IP 1.1.1.1 -> US)
     login1 = await client.post(

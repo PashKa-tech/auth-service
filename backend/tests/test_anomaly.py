@@ -5,7 +5,7 @@ from src.models.audit import AuditLog
 from sqlalchemy import select
 
 @pytest.mark.asyncio
-async def test_geoip_anomaly_detection_flow(client: AsyncClient, db_session):
+async def test_geoip_anomaly_detection_flow(client: AsyncClient, db_session, verify_user):
     headers = {"X-Api-Key": TEST_API_KEY}
     email = "anomaly_user@example.com"
     password = "SuperPassword123!"
@@ -17,6 +17,7 @@ async def test_geoip_anomaly_detection_flow(client: AsyncClient, db_session):
         json={"email": email, "password": password}
     )
     assert reg_resp.status_code == 201
+    await verify_user(email)
 
     # 2. Login from Australia (1.1.1.1)
     login1 = await client.post(

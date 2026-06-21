@@ -6,7 +6,7 @@ from src.models.user import User
 from sqlalchemy import select
 
 @pytest.mark.asyncio
-async def test_rbac_admin_only_flow(client: AsyncClient, db_session):
+async def test_rbac_admin_only_flow(client: AsyncClient, db_session, verify_user):
     headers = {"X-Api-Key": TEST_API_KEY}
     email = "rbac_test@example.com"
     password = "SuperPassword123!"
@@ -19,6 +19,7 @@ async def test_rbac_admin_only_flow(client: AsyncClient, db_session):
     )
     assert reg_resp.status_code == 201
     user_id = reg_resp.json()["data"]["id"]
+    await verify_user(email)
 
     # 2. Login to get browser cookies
     login_resp = await client.post(

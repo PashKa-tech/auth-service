@@ -3,7 +3,7 @@ from httpx import AsyncClient
 from tests.conftest import TEST_API_KEY
 
 @pytest.mark.asyncio
-async def test_webauthn_flows(client: AsyncClient):
+async def test_webauthn_flows(client: AsyncClient, verify_user):
     """Test generating WebAuthn registration options."""
     headers = {"X-Api-Key": TEST_API_KEY}
     email = "passkey_user@example.com"

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import TEST_API_KEY, TEST_TENANT_ID
 
 @pytest.mark.asyncio
-async def test_2fa_full_flow(client: AsyncClient):
+async def test_2fa_full_flow(client: AsyncClient, verify_user):
     headers = {"X-Api-Key": TEST_API_KEY}
     email = "2fa_user@example.com"
     password = "SuperPassword123!"
@@ -17,6 +17,7 @@ async def test_2fa_full_flow(client: AsyncClient):
         json={"email": email, "password": password}
     )
     assert reg_resp.status_code == 201
+    await verify_user(email)
 
     # 2. Login (normal flow - 2FA is disabled)
     login_resp = await client.post(
@@ -96,13 +97,14 @@ async def test_2fa_full_flow(client: AsyncClient):
     assert "access_token" in verify_resp.cookies
 
 @pytest.mark.asyncio
-async def test_2fa_backup_codes(client: AsyncClient):
+async def test_2fa_backup_codes(client: AsyncClient, verify_user):
     headers = {"X-Api-Key": TEST_API_KEY}
     email = "2fa_backup@example.com"
     password = "SuperPassword123!"
 
     # 1. Register & Setup
     await client.post("/api/v1/auth/register", headers=headers, json={"email": email, "password": password})
+    await verify_user(email)
     
     # Login & Setup 2FA
     login_resp = await client.post("/api/v1/auth/login", headers=headers, json={"email": email, "password": password})
@@ -143,13 +145,14 @@ async def test_2fa_backup_codes(client: AsyncClient):
     assert verify_resp3.status_code == 401
 
 @pytest.mark.asyncio
-async def test_2fa_regenerate_and_disable(client: AsyncClient):
+async def test_2fa_regenerate_and_disable(client: AsyncClient, verify_user):
     headers = {"X-Api-Key": TEST_API_KEY}
     email = "2fa_manage@example.com"
     password = "SuperPassword123!"
 
     # Register, login, setup & confirm 2FA
     await client.post("/api/v1/auth/register", headers=headers, json={"email": email, "password": password})
+    await verify_user(email)
     login_resp = await client.post("/api/v1/auth/login", headers=headers, json={"email": email, "password": password})
     cookies = login_resp.cookies
     
@@ -212,7 +215,7 @@ async def test_2fa_regenerate_and_disable(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_2fa_mfa_token_expired(client: AsyncClient):
+async def test_2fa_mfa_token_expired(client: AsyncClient, verify_user):
     import jwt
     import time
     from src.config import settings
@@ -239,13 +242,14 @@ async def test_2fa_mfa_token_expired(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_2fa_replay_protection(client: AsyncClient):
+async def test_2fa_replay_protection(client: AsyncClient, verify_user):
     headers = {"X-Api-Key": TEST_API_KEY}
     email = "replay_2fa@example.com"
     password = "SuperPassword123!"
 
     # Register
     await client.post("/api/v1/auth/register", headers=headers, json={"email": email, "password": password})
+    await verify_user(email)
     
     # Login & Setup
     login_resp = await client.post("/api/v1/auth/login", headers=headers, json={"email": email, "password": password})
@@ -293,13 +297,14 @@ async def test_2fa_replay_protection(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_2fa_verify_browser_client_no_api_key(client: AsyncClient):
+async def test_2fa_verify_browser_client_no_api_key(client: AsyncClient, verify_user):
     headers = {"X-Api-Key": TEST_API_KEY}
     email = "browser_2fa@example.com"
     password = "SuperPassword123!"
 
     # 1. Register, login, setup & confirm 2FA
     await client.post("/api/v1/auth/register", headers=headers, json={"email": email, "password": password})
+    await verify_user(email)
     login_resp = await client.post("/api/v1/auth/login", headers=headers, json={"email": email, "password": password})
     cookies = login_resp.cookies
     

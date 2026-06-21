@@ -4,7 +4,7 @@ from httpx import AsyncClient
 HEADERS = {"X-API-Key": "test_developer_key"}
 
 @pytest.mark.asyncio
-async def test_register_success(client: AsyncClient):
+async def test_register_success(client: AsyncClient, verify_user):
     response = await client.post(
         "/api/v1/auth/register",
         json={"email": "test@example.com", "password": "password123"},
@@ -16,7 +16,7 @@ async def test_register_success(client: AsyncClient):
     assert data["data"]["email"] == "test@example.com"
 
 @pytest.mark.asyncio
-async def test_register_duplicate(client: AsyncClient):
+async def test_register_duplicate(client: AsyncClient, verify_user):
     # First registration
     await client.post(
         "/api/v1/auth/register",
@@ -35,13 +35,14 @@ async def test_register_duplicate(client: AsyncClient):
     assert data["error"]["code"] == "HTTP_ERROR"
 
 @pytest.mark.asyncio
-async def test_login_success(client: AsyncClient):
+async def test_login_success(client: AsyncClient, verify_user):
     # Register first
     await client.post(
         "/api/v1/auth/register",
         json={"email": "login@example.com", "password": "password123"},
         headers=HEADERS
     )
+    await verify_user("login@example.com")
     # Login
     response = await client.post(
         "/api/v1/auth/login",
@@ -53,7 +54,7 @@ async def test_login_success(client: AsyncClient):
     assert data["success"] is True
 
 @pytest.mark.asyncio
-async def test_login_invalid_credentials(client: AsyncClient):
+async def test_login_invalid_credentials(client: AsyncClient, verify_user):
     response = await client.post(
         "/api/v1/auth/login",
         json={"email": "nonexistent@example.com", "password": "wrongpassword"},

@@ -3,7 +3,7 @@ from httpx import AsyncClient
 from tests.conftest import TEST_API_KEY, TEST_TENANT_ID
 
 @pytest.mark.asyncio
-async def test_health_endpoints(client: AsyncClient):
+async def test_health_endpoints(client: AsyncClient, verify_user):
     """Test healthcheck endpoints."""
     # Liveness
     resp = await client.get("/health")
@@ -19,7 +19,7 @@ async def test_health_endpoints(client: AsyncClient):
     assert data["details"]["redis"] == "ok"
 
 @pytest.mark.asyncio
-async def test_user_registration_validation(client: AsyncClient):
+async def test_user_registration_validation(client: AsyncClient, verify_user):
     """Test user registration validations (missing tenant, short password)."""
     # 1. Register without X-Api-Key
     resp = await client.post(
@@ -41,7 +41,7 @@ async def test_user_registration_validation(client: AsyncClient):
     assert "validation" in resp.json()["error"]["code"].lower()
 
 @pytest.mark.asyncio
-async def test_auth_full_flow_browser(client: AsyncClient):
+async def test_auth_full_flow_browser(client: AsyncClient, verify_user):
     """Test complete authentication flow for browser clients (using cookies)."""
     headers = {"X-Api-Key": TEST_API_KEY}
     email = "browser_user@example.com"
@@ -56,6 +56,7 @@ async def test_auth_full_flow_browser(client: AsyncClient):
     assert reg_resp.status_code == 201
     assert reg_resp.json()["success"] is True
     assert reg_resp.json()["data"]["email"] == email
+    await verify_user(email)
     
     # 2. Attempt duplicate registration
     reg_dup = await client.post(
@@ -116,7 +117,7 @@ async def test_auth_full_flow_browser(client: AsyncClient):
     assert me_after_attack.status_code == 401
     
 @pytest.mark.asyncio
-async def test_auth_flow_mobile(client: AsyncClient):
+async def test_auth_flow_mobile(client: AsyncClient, verify_user):
     """Test mobile client flow using Headers instead of Cookies."""
     headers = {
         "X-Api-Key": TEST_API_KEY,

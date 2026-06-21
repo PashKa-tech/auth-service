@@ -138,3 +138,12 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
         base_url="http://testserver"
     ) as ac:
         yield ac
+
+@pytest.fixture
+def verify_user(db_session: AsyncSession):
+    async def _verify(email: str):
+        from src.models.user import User
+        from sqlalchemy import update
+        await db_session.execute(update(User).where(User.email == email).values(is_verified=True))
+        await db_session.commit()
+    return _verify

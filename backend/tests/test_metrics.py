@@ -3,7 +3,7 @@ from httpx import AsyncClient
 from tests.conftest import TEST_API_KEY
 
 @pytest.mark.asyncio
-async def test_metrics_endpoint_and_tracking(client: AsyncClient):
+async def test_metrics_endpoint_and_tracking(client: AsyncClient, verify_user):
     headers = {"X-Api-Key": TEST_API_KEY}
 
     # 1. Trigger some requests to generate metrics
