@@ -48,6 +48,13 @@ async def _resolve_from_refresh_token(request: Request, db: AsyncSession) -> uui
         refresh_token = request.cookies.get("refresh_token") or request.headers.get("X-Refresh-Token")
         if refresh_token:
             token_hash = hashlib.sha256(refresh_token.encode("utf-8")).hexdigest()
+            from src.core.redis import init_redis
+            redis_client = await init_redis()
+            cache_key = f"refresh_tenant:{token_hash}"
+            cached = await redis_client.get(cache_key)
+            if cached:
+                return uuid.UUID(cached)
+                
             from src.models.token import RefreshToken
             from src.models.session import Session
             from src.models.user import User as DBUser
@@ -58,15 +65,26 @@ async def _resolve_from_refresh_token(request: Request, db: AsyncSession) -> uui
                 .join(RefreshToken, RefreshToken.session_id == Session.id)
                 .where(RefreshToken.token_hash == token_hash)
             )
-            return result.scalar_one_or_none()
+            tenant_id = result.scalar_one_or_none()
+            if tenant_id:
+                await redis_client.set(cache_key, str(tenant_id), ex=3600)
+            return tenant_id
     return None
 
 async def _resolve_from_api_key(db: AsyncSession, x_api_key: str | None) -> uuid.UUID | None:
     if x_api_key:
         api_key_hash = hashlib.sha256(x_api_key.encode("utf-8")).hexdigest()
+        from src.core.redis import init_redis
+        redis_client = await init_redis()
+        cache_key = f"api_key_tenant:{api_key_hash}"
+        cached = await redis_client.get(cache_key)
+        if cached:
+            return uuid.UUID(cached)
+            
         tenant_repo = TenantRepository(db)
         tenant = await tenant_repo.get_by_api_key_hash(api_key_hash)
         if tenant:
+            await redis_client.set(cache_key, str(tenant.id), ex=300) # Cache for 5 mins
             return tenant.id
     return None
 
@@ -75,9 +93,17 @@ async def _resolve_from_tenant_id_header_or_param(db: AsyncSession, x_tenant_id:
     if tenant_val:
         try:
             tenant_uuid = uuid.UUID(tenant_val)
+            from src.core.redis import init_redis
+            redis_client = await init_redis()
+            cache_key = f"tenant_exists:{tenant_uuid}"
+            cached = await redis_client.get(cache_key)
+            if cached == "1":
+                return tenant_uuid
+                
             tenant_repo = TenantRepository(db)
             tenant = await tenant_repo.get_by_id(tenant_uuid)
             if tenant:
+                await redis_client.set(cache_key, "1", ex=600) # Cache for 10 mins
                 return tenant.id
         except ValueError:
             pass
@@ -278,7 +304,7 @@ async def get_tenant_repository(
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(resolve_tenant)
 ) -> TenantRepository:
-    return TenantRepository(db, tenant_id)
+    return TenantRepository(db)
 
 from src.services.tenant import TenantService
 
@@ -346,18 +372,15 @@ async def get_current_user(
             detail="Invalid token identifier formats"
         )
         
-    # Check Redis for session validity and cached user to save DB query
+    # Check Redis for session validity and cached user separately
     from src.core.redis import init_redis
     import json
     redis_client = await init_redis()
-    cache_key = f"session_user:{session_uuid}"
-    cached_data = await redis_client.get(cache_key)
     
-    if cached_data:
-        user_data = json.loads(cached_data)
-        user = User(id=uuid.UUID(user_data["id"]), role=user_data["role"], is_active=user_data["is_active"], email=user_data.get("email", ""))
-    else:
-        # Check if session is revoked in DB
+    session_cache_key = f"session:{session_uuid}"
+    cached_session = await redis_client.get(session_cache_key)
+    
+    if not cached_session:
         from src.models.session import Session as DBSession
         from sqlalchemy import select
         result_session = await db.execute(
@@ -369,18 +392,25 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Session has been revoked or expired"
             )
-
-        # Fetch user
+        await redis_client.set(session_cache_key, "1", ex=60) # Short TTL for revocation check
+        
+    user_cache_key = f"user:{user_uuid}"
+    cached_user = await redis_client.get(user_cache_key)
+    
+    if cached_user:
+        user_data = json.loads(cached_user)
+        user = User(id=uuid.UUID(user_data["id"]), role=user_data["role"], is_active=user_data["is_active"], email=user_data.get("email", ""))
+        if not user.is_active:
+             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account is deactivated")
+    else:
         user = await user_repo.get_by_id(user_uuid)
         if not user or not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not found or deactivated"
             )
-            
-        # Cache for 60 seconds
         user_data = {"id": str(user.id), "role": user.role, "is_active": user.is_active, "email": user.email}
-        await redis_client.set(cache_key, json.dumps(user_data), ex=60)
+        await redis_client.set(user_cache_key, json.dumps(user_data), ex=3600) # Long TTL, invalidated on update
 
     # Inject session_id into request state for endpoint handlers
     request.state.session_id = session_uuid
@@ -413,20 +443,28 @@ class PermissionChecker:
         if current_user.role == "admin":
             return current_user
             
-        from src.models.rbac import UserRole, Role, RolePermission
-        from sqlalchemy import select
+        from src.core.redis import init_redis
+        import json
+        redis_client = await init_redis()
+        cache_key = f"user_permissions:{current_user.id}"
+        cached_perms = await redis_client.get(cache_key)
         
-        result = await db.execute(
-            select(RolePermission)
-            .join(Role)
-            .join(UserRole)
-            .where(
-                UserRole.user_id == current_user.id,
-                RolePermission.permission == self.required_permission
+        if cached_perms:
+            permissions = json.loads(cached_perms)
+        else:
+            from src.models.rbac import UserRole, Role, RolePermission
+            from sqlalchemy import select
+            
+            result = await db.execute(
+                select(RolePermission.permission)
+                .join(Role)
+                .join(UserRole)
+                .where(UserRole.user_id == current_user.id)
             )
-        )
-        
-        if not result.scalar_one_or_none():
+            permissions = [row[0] for row in result.all()]
+            await redis_client.set(cache_key, json.dumps(permissions), ex=3600)
+            
+        if self.required_permission not in permissions:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Forbidden: missing '{self.required_permission}' permission"

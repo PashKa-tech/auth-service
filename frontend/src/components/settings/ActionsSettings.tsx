@@ -155,8 +155,9 @@ function onExecutePostLogin(event, api) {
 
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Action Name</label>
+              <label htmlFor="actionName" className="block text-sm font-medium text-gray-700 mb-1">Action Name</label>
               <input 
+                id="actionName"
                 type="text" 
                 className="w-full p-2 border rounded-md"
                 value={name}
@@ -175,18 +176,19 @@ function onExecutePostLogin(event, api) {
             </div>
           </div>
 
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+          <fieldset className="mb-4">
+            <legend className="block text-sm font-medium text-gray-700 mb-1">Status</legend>
             <label className="flex items-center gap-2 cursor-pointer">
               <input 
                 type="checkbox" 
                 checked={isActive}
                 onChange={(e) => setIsActive(e.target.checked)}
                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                aria-label="Active status"
               />
               <span className="text-sm">Active</span>
             </label>
-          </div>
+          </fieldset>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1 flex justify-between">

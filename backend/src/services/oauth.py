@@ -1,6 +1,7 @@
 import uuid
 import httpx
 from urllib.parse import urlencode
+from abc import ABC, abstractmethod
 from src.config import settings
 from src.core.logging import logger
 from src.repositories.oauth import OAuthRepository
@@ -31,139 +32,40 @@ def get_provider_redirect_uri(provider: str) -> str:
     base_url = get_normalized_base_url()
     return f"{base_url}{settings.API_V1_STR}/oauth/{provider}/callback"
 
-class OAuthService:
-    def __init__(self, oauth_repo: OAuthRepository):
-        self.oauth_repo = oauth_repo
-        self.tenant_id = oauth_repo.tenant_id
+class OAuthProviderStrategy(ABC):
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        pass
 
-    def get_authorization_url(self, provider: str, state: str, extra_params: dict | None = None) -> str:
-        """Generate redirect URL to OAuth provider login page."""
-        provider_upper = provider.upper()
-        
-        # Check toggle
-        enabled = getattr(settings, f"ENABLE_{provider_upper}_OAUTH", False)
-        if not enabled:
-            raise ValueError(f"OAuth provider {provider} is disabled")
-            
-        client_id = getattr(settings, f"{provider_upper}_CLIENT_ID", None)
-        if not client_id:
-            raise ValueError(f"OAuth provider {provider} is not configured")
-            
-        redirect_uri = get_provider_redirect_uri(provider)
-        
-        if provider == "google":
-            params = {
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "response_type": "code",
-                "scope": "openid email profile",
-                "state": state,
-                "access_type": "online",
-            }
-            return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
-            
-        elif provider == "github":
-            params = {
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "scope": "user:email",
-                "state": state,
-            }
-            return f"https://github.com/login/oauth/authorize?{urlencode(params)}"
-            
-        elif provider == "discord":
-            params = {
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "response_type": "code",
-                "scope": "identify email",
-                "state": state,
-            }
-            return f"https://discord.com/oauth2/authorize?{urlencode(params)}"
-            
-        elif provider == "apple":
-            params = {
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "response_type": "code",
-                "scope": "name email",
-                "response_mode": "query",
-                "state": state,
-            }
-            return f"https://appleid.apple.com/auth/authorize?{urlencode(params)}"
-            
-        elif provider == "facebook":
-            params = {
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "response_type": "code",
-                "scope": "public_profile email",
-                "state": state,
-            }
-            return f"https://www.facebook.com/v12.0/dialog/oauth?{urlencode(params)}"
-            
-        elif provider == "twitter":
-            params = {
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "response_type": "code",
-                "scope": "users.read tweet.read email.read",
-                "state": state,
-            }
-            if extra_params:
-                if "code_challenge" in extra_params:
-                    params["code_challenge"] = extra_params["code_challenge"]
-                if "code_challenge_method" in extra_params:
-                    params["code_challenge_method"] = extra_params["code_challenge_method"]
-            return f"https://twitter.com/i/oauth2/authorize?{urlencode(params)}"
-            
-        elif provider == "amazon":
-            params = {
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "scope": "profile",
-                "state": state,
-                "response_type": "code",
-            }
-            return f"https://www.amazon.com/ap/oa?{urlencode(params)}"
-            
-        else:
-            raise ValueError(f"Unknown OAuth provider: {provider}")
+    @abstractmethod
+    def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
+        pass
 
-    async def get_user_info_from_provider(self, provider: str, code: str, redirect_uri: str | None = None, code_verifier: str | None = None) -> OAuthUserInfo:
-        """Exchange auth code for access token and fetch user details from provider."""
-        provider_upper = provider.upper()
-        enabled = getattr(settings, f"ENABLE_{provider_upper}_OAUTH", False)
-        if not enabled:
-            raise ValueError(f"OAuth provider {provider} is disabled")
-            
-        if not redirect_uri:
-            redirect_uri = get_provider_redirect_uri(provider)
-            
-        async with httpx.AsyncClient() as client:
-            if provider == "google":
-                return await self._get_google_user_info(client, code, redirect_uri)
-            elif provider == "github":
-                return await self._get_github_user_info(client, code, redirect_uri)
-            elif provider == "discord":
-                return await self._get_discord_user_info(client, code, redirect_uri)
-            elif provider == "apple":
-                return await self._get_apple_user_info(client, code, redirect_uri)
-            elif provider == "facebook":
-                return await self._get_facebook_user_info(client, code, redirect_uri)
-            elif provider == "twitter":
-                return await self._get_twitter_user_info(client, code, redirect_uri, code_verifier)
-            elif provider == "amazon":
-                return await self._get_amazon_user_info(client, code, redirect_uri)
-            else:
-                raise ValueError(f"Unsupported provider: {provider}")
+    @abstractmethod
+    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
+        pass
 
-    async def _get_google_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str) -> OAuthUserInfo:
-        # 1. Exchange code for tokens
+class GoogleStrategy(OAuthProviderStrategy):
+    @property
+    def name(self) -> str: return "google"
+
+    def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
+        params = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": "openid email profile",
+            "state": state,
+            "access_type": "online",
+        }
+        return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
+
+    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
         token_url = "https://oauth2.googleapis.com/token"
         token_data = {
-            "client_id": settings.GOOGLE_CLIENT_ID,
-            "client_secret": settings.GOOGLE_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": redirect_uri,
@@ -176,7 +78,6 @@ class OAuthService:
         tokens = token_resp.json()
         access_token = tokens.get("access_token")
         
-        # 2. Fetch userinfo
         userinfo_url = "https://www.googleapis.com/oauth2/v3/userinfo"
         headers = {"Authorization": f"Bearer {access_token}"}
         userinfo_resp = await client.get(userinfo_url, headers=headers)
@@ -186,24 +87,32 @@ class OAuthService:
             
         userinfo = userinfo_resp.json()
         
-        # Verify email_verified is true
         email = userinfo.get("email")
         email_verified = userinfo.get("email_verified", False)
         if not email or not email_verified:
             raise ValueError("Google account email is not verified")
             
-        return OAuthUserInfo(
-            provider_id=str(userinfo.get("sub")),
-            email=email,
-        )
+        return OAuthUserInfo(provider_id=str(userinfo.get("sub")), email=email)
 
-    async def _get_github_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str) -> OAuthUserInfo:
-        # 1. Exchange code for token
+class GitHubStrategy(OAuthProviderStrategy):
+    @property
+    def name(self) -> str: return "github"
+
+    def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
+        params = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "scope": "user:email",
+            "state": state,
+        }
+        return f"https://github.com/login/oauth/authorize?{urlencode(params)}"
+
+    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
         token_url = "https://github.com/login/oauth/access_token"
         headers = {"Accept": "application/json"}
         token_data = {
-            "client_id": settings.GITHUB_CLIENT_ID,
-            "client_secret": settings.GITHUB_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "code": code,
             "redirect_uri": redirect_uri,
         }
@@ -218,12 +127,8 @@ class OAuthService:
             
         access_token = token_json["access_token"]
         
-        # 2. Get user info
         user_url = "https://api.github.com/user"
-        user_headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Accept": "application/json"
-        }
+        user_headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
         user_resp = await client.get(user_url, headers=user_headers)
         if user_resp.status_code != 200:
             logger.error(f"GitHub profile fetch failed: {user_resp.text}")
@@ -232,7 +137,6 @@ class OAuthService:
         profile = user_resp.json()
         provider_user_id = str(profile.get("id"))
         
-        # 3. Fetch emails
         email = profile.get("email")
         if not email:
             emails_url = "https://api.github.com/user/emails"
@@ -252,16 +156,27 @@ class OAuthService:
         if not email:
             raise ValueError("Verified email address not found on GitHub account")
             
-        return OAuthUserInfo(
-            provider_id=provider_user_id,
-            email=email,
-        )
+        return OAuthUserInfo(provider_id=provider_user_id, email=email)
 
-    async def _get_discord_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str) -> OAuthUserInfo:
+class DiscordStrategy(OAuthProviderStrategy):
+    @property
+    def name(self) -> str: return "discord"
+
+    def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
+        params = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": "identify email",
+            "state": state,
+        }
+        return f"https://discord.com/oauth2/authorize?{urlencode(params)}"
+
+    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
         token_url = "https://discord.com/api/v10/oauth2/token"
         token_data = {
-            "client_id": settings.DISCORD_CLIENT_ID,
-            "client_secret": settings.DISCORD_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": redirect_uri,
@@ -283,16 +198,28 @@ class OAuthService:
         email = userinfo.get("email")
         if not email or not userinfo.get("verified", False):
             raise ValueError("Discord account email is not verified")
-        return OAuthUserInfo(
-            provider_id=str(userinfo.get("id")),
-            email=email,
-        )
+        return OAuthUserInfo(provider_id=str(userinfo.get("id")), email=email)
 
-    async def _get_apple_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str) -> OAuthUserInfo:
+class AppleStrategy(OAuthProviderStrategy):
+    @property
+    def name(self) -> str: return "apple"
+
+    def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
+        params = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": "name email",
+            "response_mode": "query",
+            "state": state,
+        }
+        return f"https://appleid.apple.com/auth/authorize?{urlencode(params)}"
+
+    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
         token_url = "https://appleid.apple.com/auth/token"
         token_data = {
-            "client_id": settings.APPLE_CLIENT_ID,
-            "client_secret": settings.APPLE_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": redirect_uri,
@@ -311,16 +238,27 @@ class OAuthService:
         email = decoded.get("email")
         if not email:
             raise ValueError("Apple id_token does not contain email")
-        return OAuthUserInfo(
-            provider_id=str(decoded.get("sub")),
-            email=email,
-        )
+        return OAuthUserInfo(provider_id=str(decoded.get("sub")), email=email)
 
-    async def _get_facebook_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str) -> OAuthUserInfo:
+class FacebookStrategy(OAuthProviderStrategy):
+    @property
+    def name(self) -> str: return "facebook"
+
+    def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
+        params = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": "public_profile email",
+            "state": state,
+        }
+        return f"https://www.facebook.com/v12.0/dialog/oauth?{urlencode(params)}"
+
+    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
         token_url = "https://graph.facebook.com/v12.0/oauth/access_token"
         token_params = {
-            "client_id": settings.FACEBOOK_CLIENT_ID,
-            "client_secret": settings.FACEBOOK_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "code": code,
             "redirect_uri": redirect_uri,
         }
@@ -340,23 +278,39 @@ class OAuthService:
         email = userinfo.get("email")
         if not email:
             raise ValueError("Facebook account does not have a verified email address")
-        return OAuthUserInfo(
-            provider_id=str(userinfo.get("id")),
-            email=email,
-        )
+        return OAuthUserInfo(provider_id=str(userinfo.get("id")), email=email)
 
-    async def _get_twitter_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, code_verifier: str | None) -> OAuthUserInfo:
+class TwitterStrategy(OAuthProviderStrategy):
+    @property
+    def name(self) -> str: return "twitter"
+
+    def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
+        params = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": "users.read tweet.read email.read",
+            "state": state,
+        }
+        if extra_params:
+            if "code_challenge" in extra_params:
+                params["code_challenge"] = extra_params["code_challenge"]
+            if "code_challenge_method" in extra_params:
+                params["code_challenge_method"] = extra_params["code_challenge_method"]
+        return f"https://twitter.com/i/oauth2/authorize?{urlencode(params)}"
+
+    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
         token_url = "https://api.twitter.com/2/oauth2/token"
         token_data = {
-            "client_id": settings.TWITTER_CLIENT_ID,
-            "client_secret": settings.TWITTER_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": redirect_uri,
             "code_verifier": code_verifier,
         }
         import base64
-        auth_str = f"{settings.TWITTER_CLIENT_ID}:{settings.TWITTER_CLIENT_SECRET or ''}"
+        auth_str = f"{client_id}:{client_secret or ''}"
         b64_auth = base64.b64encode(auth_str.encode("ascii")).decode("ascii")
         headers = {"Authorization": f"Basic {b64_auth}"}
         token_resp = await client.post(token_url, data=token_data, headers=headers)
@@ -381,16 +335,27 @@ class OAuthService:
         email = data_block.get("email")
         if not email:
             raise ValueError("Twitter account does not have an email address")
-        return OAuthUserInfo(
-            provider_id=str(data_block.get("id")),
-            email=email,
-        )
+        return OAuthUserInfo(provider_id=str(data_block.get("id")), email=email)
 
-    async def _get_amazon_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str) -> OAuthUserInfo:
+class AmazonStrategy(OAuthProviderStrategy):
+    @property
+    def name(self) -> str: return "amazon"
+
+    def get_authorization_url(self, client_id: str, redirect_uri: str, state: str, extra_params: dict | None = None) -> str:
+        params = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "scope": "profile",
+            "state": state,
+            "response_type": "code",
+        }
+        return f"https://www.amazon.com/ap/oa?{urlencode(params)}"
+
+    async def get_user_info(self, client: httpx.AsyncClient, code: str, redirect_uri: str, client_id: str, client_secret: str, code_verifier: str | None = None) -> OAuthUserInfo:
         token_url = "https://api.amazon.com/auth/o2/token"
         token_data = {
-            "client_id": settings.AMAZON_CLIENT_ID,
-            "client_secret": settings.AMAZON_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": redirect_uri,
@@ -411,10 +376,62 @@ class OAuthService:
         email = userinfo.get("email")
         if not email:
             raise ValueError("Amazon account does not have an email address")
-        return OAuthUserInfo(
-            provider_id=str(userinfo.get("user_id")),
-            email=email,
-        )
+        return OAuthUserInfo(provider_id=str(userinfo.get("user_id")), email=email)
+
+
+class OAuthService:
+    def __init__(self, oauth_repo: OAuthRepository):
+        self.oauth_repo = oauth_repo
+        self.tenant_id = oauth_repo.tenant_id
+        self.strategies: dict[str, OAuthProviderStrategy] = {
+            "google": GoogleStrategy(),
+            "github": GitHubStrategy(),
+            "discord": DiscordStrategy(),
+            "apple": AppleStrategy(),
+            "facebook": FacebookStrategy(),
+            "twitter": TwitterStrategy(),
+            "amazon": AmazonStrategy(),
+        }
+
+    def _get_strategy(self, provider: str) -> OAuthProviderStrategy:
+        strategy = self.strategies.get(provider.lower())
+        if not strategy:
+            raise ValueError(f"Unknown or unsupported OAuth provider: {provider}")
+        return strategy
+
+    def get_authorization_url(self, provider: str, state: str, extra_params: dict | None = None) -> str:
+        """Generate redirect URL to OAuth provider login page."""
+        provider_upper = provider.upper()
+        enabled = getattr(settings, f"ENABLE_{provider_upper}_OAUTH", False)
+        if not enabled:
+            raise ValueError(f"OAuth provider {provider} is disabled")
+            
+        client_id = getattr(settings, f"{provider_upper}_CLIENT_ID", None)
+        if not client_id:
+            raise ValueError(f"OAuth provider {provider} is not configured")
+            
+        redirect_uri = get_provider_redirect_uri(provider)
+        strategy = self._get_strategy(provider)
+        return strategy.get_authorization_url(client_id, redirect_uri, state, extra_params)
+
+    async def get_user_info_from_provider(self, provider: str, code: str, redirect_uri: str | None = None, code_verifier: str | None = None) -> OAuthUserInfo:
+        """Exchange auth code for access token and fetch user details from provider."""
+        provider_upper = provider.upper()
+        enabled = getattr(settings, f"ENABLE_{provider_upper}_OAUTH", False)
+        if not enabled:
+            raise ValueError(f"OAuth provider {provider} is disabled")
+            
+        client_id = getattr(settings, f"{provider_upper}_CLIENT_ID", None)
+        client_secret = getattr(settings, f"{provider_upper}_CLIENT_SECRET", None)
+        if not client_id:
+            raise ValueError(f"OAuth provider {provider} is not configured")
+            
+        if not redirect_uri:
+            redirect_uri = get_provider_redirect_uri(provider)
+            
+        strategy = self._get_strategy(provider)
+        async with httpx.AsyncClient() as client:
+            return await strategy.get_user_info(client, code, redirect_uri, client_id, client_secret, code_verifier)
 
     async def resolve_oauth_user(
         self,

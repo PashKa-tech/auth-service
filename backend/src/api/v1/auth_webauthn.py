@@ -12,7 +12,7 @@ from src.models.user import User
 from src.core.rate_limit import is_rate_limited
 from src.schemas.common import UnifiedResponse
 from src.schemas.auth import WebAuthnLoginBeginRequest, WebAuthnRegisterCompleteRequest, WebAuthnLoginCompleteRequest
-from src.api.v1.auth_utils import get_client_ip, is_mobile_client, set_auth_cookies
+from src.api.v1.auth_utils import get_client_ip, is_mobile_client, set_auth_cookies, handle_auth_success_response
 
 router = APIRouter()
 
@@ -101,21 +101,14 @@ async def webauthn_login_complete(
         refresh_token = login_result.refresh_token
         session = login_result.session
 
-        mobile = is_mobile_client(request)
-        if mobile:
-            return UnifiedResponse(
-                success=True,
-                data={
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
-                    "user": {"id": str(session.user_id), "role": "user"}
-                }
-            )
-        else:
-            set_auth_cookies(response, access_token, refresh_token)
-            return UnifiedResponse(
-                success=True,
-                data={"message": "Login successful via Passkey"}
-            )
+        return handle_auth_success_response(
+            request=request,
+            response=response,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user_id=str(session.user_id),
+            role="user",
+            message="Login successful via Passkey"
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))

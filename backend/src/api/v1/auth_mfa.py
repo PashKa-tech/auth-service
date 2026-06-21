@@ -12,7 +12,7 @@ from src.models.user import User
 from src.core.rate_limit import is_rate_limited
 from src.schemas.common import UnifiedResponse
 from src.schemas.auth import TwoFactorConfirmRequest, TwoFactorVerifyRequest, TwoFactorDisableRequest
-from src.api.v1.auth_utils import get_client_ip, is_mobile_client
+from src.api.v1.auth_utils import get_client_ip, is_mobile_client, handle_auth_success_response
 
 router = APIRouter()
 
@@ -160,23 +160,15 @@ async def verify_2fa(
         refresh_token = login_result.refresh_token
         session = login_result.session
 
-        mobile = is_mobile_client(request)
-        if mobile:
-            return UnifiedResponse(
-                success=True,
-                data={
-                    "access_token": access_token,
-                    "refresh_token": refresh_token,
-                    "user": {"id": str(session.user_id), "role": "user"}
-                }
-            )
-        else:
-            from src.api.v1.auth_utils import set_auth_cookies
-            set_auth_cookies(response, access_token, refresh_token)
-            return UnifiedResponse(
-                success=True,
-                data={"message": "Login successful"}
-            )
+        return handle_auth_success_response(
+            request=request,
+            response=response,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user_id=str(session.user_id),
+            role="user",
+            message="Login successful"
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
 

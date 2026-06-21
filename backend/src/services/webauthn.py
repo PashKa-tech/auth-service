@@ -211,25 +211,8 @@ class WebAuthnService:
             device_fingerprint=fingerprint
         )
 
-        # 4. Generate & Store Refresh Token
-        raw_refresh = generate_opaque_token()
-        refresh_hash = hash_opaque_token(raw_refresh)
-        family_id = str(uuid.uuid4())
-        
-        await self.auth_service.token_repo.create(
-            session_id=session.id,
-            token_hash=refresh_hash,
-            family_id=family_id,
-            expires_at=session_expiry
-        )
-
-        # 5. Generate Access Token (JWT)
-        access_token = create_access_token(
-            subject=user.id,
-            tenant_id=self.auth_service.tenant_id,
-            role=user.role,
-            session_id=session.id
-        )
+        # 4. Generate Tokens (executes webhooks & JS actions)
+        access_token, raw_refresh = await self.auth_service._issue_tokens(user, session)
 
         # 6. Audit Log
         from src.core.metrics import LOGIN_COUNTER, ACTIVE_SESSIONS

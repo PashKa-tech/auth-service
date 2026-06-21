@@ -58,23 +58,14 @@ async def exchange_oauth_token(
         user_agent=None,
         device_fingerprint=None
     )
-    
-    raw_refresh = generate_opaque_token()
-    refresh_hash = hash_opaque_token(raw_refresh)
-    
-    await auth_service.token_repo.create(
-        session_id=session.id,
-        token_hash=refresh_hash,
-        family_id=str(uuid.uuid4()),
-        expires_at=session_expiry
-    )
-    
-    access_token = create_access_token(
-        subject=user_id,
-        tenant_id=tenant_id,
-        role=role,
-        session_id=session.id
-    )
+    user = await auth_service.user_repo.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+    try:
+        access_token, raw_refresh = await auth_service._issue_tokens(user, session)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
 
     return UnifiedResponse(
         success=True,
@@ -320,23 +311,7 @@ async def oauth_callback(
             device_fingerprint=fingerprint
         )
         
-        raw_refresh = generate_opaque_token()
-        refresh_hash = hash_opaque_token(raw_refresh)
-        family_id = str(uuid.uuid4())
-        
-        await auth_service.token_repo.create(
-            session_id=session.id,
-            token_hash=refresh_hash,
-            family_id=family_id,
-            expires_at=session_expiry
-        )
-        
-        access_token = create_access_token(
-            subject=user.id,
-            tenant_id=tenant_id,
-            role=user.role,
-            session_id=session.id
-        )
+        access_token, raw_refresh = await auth_service._issue_tokens(user, session)
         
         await auth_service.audit_repo.create(
             action="login_success",

@@ -200,6 +200,8 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         <div style={{ position: 'relative', textAlign: 'center', marginBottom: '2rem' }}>
           <button
             onClick={() => setShowSettings(!showSettings)}
+            aria-label="Toggle developer settings"
+            aria-expanded={showSettings}
             style={{
               position: 'absolute',
               top: 0,
@@ -228,13 +230,13 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
         {/* Status Messages */}
         {error && (
-          <div className="alert alert-error">
+          <div className="alert alert-error" role="alert" aria-live="assertive">
             <AlertCircle size={20} style={{ flexShrink: 0 }} />
             <span>{error}</span>
           </div>
         )}
         {info && (
-          <div className="alert alert-info">
+          <div className="alert alert-info" role="status" aria-live="polite">
             <CheckCircle size={20} style={{ flexShrink: 0 }} />
             <span>{info}</span>
           </div>
@@ -247,8 +249,9 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               <Key size={16} /> Developer Settings (Multi-tenant)
             </h3>
             <div className="form-group">
-              <label className="form-label">Tenant X-Api-Key</label>
+              <label htmlFor="api-key" className="form-label">Tenant X-Api-Key</label>
               <input
+                id="api-key"
                 type="text"
                 className="form-input"
                 value={apiKey}
@@ -266,8 +269,9 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         {requires2fa ? (
           <form onSubmit={handle2faVerify}>
             <div className="form-group">
-              <label className="form-label">Authentication Code (TOTP / Backup)</label>
+              <label htmlFor="totp-code" className="form-label">Authentication Code (TOTP / Backup)</label>
               <input
+                id="totp-code"
                 type="text"
                 className="form-input"
                 placeholder="000000"
@@ -327,8 +331,9 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           <>
             <form onSubmit={handleSubmit}>
               <div className="form-group">
-                <label className="form-label">Email Address</label>
+                <label htmlFor="email" className="form-label">Email Address</label>
                 <input
+                  id="email"
                   type="email"
                   className="form-input"
                   placeholder="name@domain.com"
@@ -340,7 +345,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
               <div className="form-group">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                  <label className="form-label" style={{ marginBottom: 0 }}>Password</label>
+                  <label htmlFor="password" className="form-label" style={{ marginBottom: 0 }}>Password</label>
                   {!isRegister && (
                     <Link to="/forgot-password" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textDecoration: 'none', fontWeight: 500 }}>
                       Forgot password?
@@ -348,6 +353,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                   )}
                 </div>
                 <input
+                  id="password"
                   type="password"
                   className="form-input"
                   placeholder="••••••••"
@@ -414,26 +420,26 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                 <div className="divider">or continue with</div>
 
                 {/* OAuth Buttons */}
-                <div className="oauth-grid">
-                  <button onClick={() => handleOAuthLogin('google')} className="btn-oauth">
+                <div className="oauth-grid" role="group" aria-label="Sign in with social providers">
+                  <button aria-label="Sign in with Google" onClick={() => handleOAuthLogin('google')} className="btn-oauth">
                     Google
                   </button>
-                  <button onClick={() => handleOAuthLogin('github')} className="btn-oauth">
+                  <button aria-label="Sign in with GitHub" onClick={() => handleOAuthLogin('github')} className="btn-oauth">
                     GitHub
                   </button>
-                  <button onClick={() => handleOAuthLogin('discord')} className="btn-oauth">
+                  <button aria-label="Sign in with Discord" onClick={() => handleOAuthLogin('discord')} className="btn-oauth">
                     Discord
                   </button>
-                  <button onClick={() => handleOAuthLogin('apple')} className="btn-oauth">
+                  <button aria-label="Sign in with Apple" onClick={() => handleOAuthLogin('apple')} className="btn-oauth">
                     Apple
                   </button>
-                  <button onClick={() => handleOAuthLogin('facebook')} className="btn-oauth">
+                  <button aria-label="Sign in with Facebook" onClick={() => handleOAuthLogin('facebook')} className="btn-oauth">
                     Facebook
                   </button>
-                  <button onClick={() => handleOAuthLogin('twitter')} className="btn-oauth">
+                  <button aria-label="Sign in with Twitter" onClick={() => handleOAuthLogin('twitter')} className="btn-oauth">
                     Twitter (X)
                   </button>
-                  <button onClick={() => handleOAuthLogin('amazon')} className="btn-oauth">
+                  <button aria-label="Sign in with Amazon" onClick={() => handleOAuthLogin('amazon')} className="btn-oauth">
                     Amazon
                   </button>
                 </div>

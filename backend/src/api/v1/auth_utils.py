@@ -1,5 +1,6 @@
 from fastapi import Request, Response
 from src.config import settings
+from src.schemas.common import UnifiedResponse
 
 def get_client_ip(request: Request) -> str | None:
     """Extract client IP, taking X-Forwarded-For header into account for proxies."""
@@ -40,3 +41,29 @@ def clear_auth_cookies(response: Response):
     """Clear cookies on logout."""
     response.delete_cookie("access_token", httponly=True, samesite="lax")
     response.delete_cookie("refresh_token", httponly=True, samesite="strict")
+
+def handle_auth_success_response(
+    request: Request,
+    response: Response,
+    access_token: str,
+    refresh_token: str,
+    user_id: str,
+    role: str,
+    message: str = "Login successful"
+) -> UnifiedResponse:
+    if is_mobile_client(request):
+        return UnifiedResponse(
+            success=True,
+            data={
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "user": {"id": user_id, "role": role}
+            }
+        )
+    else:
+        set_auth_cookies(response, access_token, refresh_token)
+        return UnifiedResponse(
+            success=True,
+            data={"message": message}
+        )
+

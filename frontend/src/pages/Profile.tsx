@@ -223,13 +223,13 @@ export const Profile: React.FC = () => {
 
       {/* Alert Banners */}
       {error && (
-        <div className="alert alert-error">
+        <div className="alert alert-error" role="alert" aria-live="assertive">
           <AlertCircle size={20} />
           <span>{error}</span>
         </div>
       )}
       {success && (
-        <div className="alert alert-success">
+        <div className="alert alert-success" role="status" aria-live="polite">
           <CheckCircle size={20} />
           <span>{success}</span>
         </div>
@@ -325,8 +325,9 @@ export const Profile: React.FC = () => {
                 <form onSubmit={handleConfirm2fa} style={{ marginTop: '1.5rem' }}>
                   <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem', fontWeight: 500 }}>3. Verify Activation</h3>
                   <div className="form-group">
-                    <label className="form-label">App Verification Code</label>
+                    <label htmlFor="totpVerificationCode" className="form-label">App Verification Code</label>
                     <input
+                      id="totpVerificationCode"
                       type="text"
                       className="form-input"
                       placeholder="000000"
@@ -375,8 +376,9 @@ export const Profile: React.FC = () => {
                 ) : (
                   <form onSubmit={handleDisable2fa} style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '1rem', marginTop: '1rem' }}>
                     <div className="form-group">
-                      <label className="form-label">Verification Method</label>
+                      <label htmlFor="disableMethod" className="form-label">Verification Method</label>
                       <select 
+                        id="disableMethod"
                         className="form-input" 
                         value={disableMethod} 
                         onChange={(e) => setDisableMethod(e.target.value as 'password' | 'totp')}
@@ -387,8 +389,9 @@ export const Profile: React.FC = () => {
                       </select>
                     </div>
                     <div className="form-group">
-                      <label className="form-label">{disableMethod === 'totp' ? 'TOTP Code' : 'Account Password'}</label>
+                      <label htmlFor="disableCredential" className="form-label">{disableMethod === 'totp' ? 'TOTP Code' : 'Account Password'}</label>
                       <input
+                        id="disableCredential"
                         type={disableMethod === 'totp' ? 'text' : 'password'}
                         className="form-input"
                         placeholder={disableMethod === 'totp' ? '6-digit code' : 'Password'}
