@@ -22,14 +22,14 @@ async def fetch_and_update_geoip(session_id: uuid.UUID, ip_address: str):
                 
         if resp.status_code == 200:
             data = resp.json()
-                if data.get("status") == "success":
-                    city = data.get("city", "")
-                    country = data.get("country", "")
-                    location = f"{city}, {country}".strip(", ")
-                    if location:
-                        async with async_session_factory() as db:
-                            await db.execute(update(Session).where(Session.id == session_id).values(location=location))
-                            await db.commit()
+            if data.get("status") == "success":
+                city = data.get("city", "")
+                country = data.get("country", "")
+                location = f"{city}, {country}".strip(", ")
+                if location:
+                    async with async_session_factory() as db:
+                        await db.execute(update(Session).where(Session.id == session_id).values(location=location))
+                        await db.commit()
     except Exception:
         pass
 

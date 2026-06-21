@@ -102,12 +102,12 @@ class CaptchaService:
                     resp = await client.post("https://www.google.com/recaptcha/api/siteverify", data=post_data)
                     
             data = resp.json()
-                if not data.get("success"):
-                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Google reCAPTCHA")
-                    
-                score = data.get("score")
-                if score is not None and score < 0.5:
-                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="reCAPTCHA score too low")
+            if not data.get("success"):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Google reCAPTCHA")
+                
+            score = data.get("score")
+            if score is not None and score < 0.5:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="reCAPTCHA score too low")
             return True
             
         return True

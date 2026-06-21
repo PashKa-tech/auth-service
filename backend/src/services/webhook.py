@@ -76,9 +76,9 @@ async def deliver_webhook_background(delivery_id: uuid.UUID):
                 db.add(delivery)
                 await db.commit()
                 raise  # Raise so arq handles it
-        except Exception as e:
-            logger.error(f"Failed to execute background webhook delivery: {e}")
-            raise
+    except Exception as e:
+        logger.error(f"Failed to execute background webhook delivery: {e}")
+        raise
 
 
 class WebhookService:
