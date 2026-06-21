@@ -33,4 +33,4 @@ class VerificationToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    user: Mapped["User"] = relationship()
+    user: Mapped["User"] = relationship(back_populates="verification_tokens")

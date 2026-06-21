@@ -416,6 +416,11 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or deactivated"
         )
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User email is not verified"
+        )
     # Inject session_id into request state for endpoint handlers
     request.state.session_id = session_uuid
     

@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from src.models.two_factor import TwoFactorBackupCode
     from src.models.webauthn import WebAuthnCredential
     from src.models.rbac import UserRole
+    from src.models.token import VerificationToken
 
 class User(Base):
     __tablename__ = "users"
@@ -45,3 +46,4 @@ class User(Base):
     backup_codes: Mapped[list["TwoFactorBackupCode"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     passkeys: Mapped[list["WebAuthnCredential"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     roles: Mapped[list["UserRole"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    verification_tokens: Mapped[list["VerificationToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")

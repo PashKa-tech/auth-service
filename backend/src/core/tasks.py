@@ -3,10 +3,12 @@ from sqlalchemy import delete, func, select
 from src.database import async_session_factory
 from src.models.session import Session
 from src.models.token import RefreshToken, VerificationToken
+from src.models.tenant import OrganizationInvite
+from src.models.webhook import WebhookDelivery
 from src.core.logging import logger
 
 async def garbage_collect_expired_tokens():
-    """Periodically deletes expired sessions and tokens from the database."""
+    """Periodically deletes expired sessions, tokens, invites and failed deliveries from the database."""
     while True:
         try:
             logger.info("Running garbage collection for expired tokens and sessions.")
@@ -18,7 +20,7 @@ async def garbage_collect_expired_tokens():
                             select(VerificationToken.id).where(VerificationToken.expires_at < func.now()).limit(1000)
                         )
                     )
-                    res1 = await session.execute(stmt1)
+                    res1 = await asyncio.wait_for(session.execute(stmt1), timeout=5.0)
                     deleted_vtokens += res1.rowcount
                     if res1.rowcount < 1000:
                         break
@@ -31,7 +33,7 @@ async def garbage_collect_expired_tokens():
                             select(RefreshToken.id).where(RefreshToken.expires_at < func.now()).limit(1000)
                         )
                     )
-                    res2 = await session.execute(stmt2)
+                    res2 = await asyncio.wait_for(session.execute(stmt2), timeout=5.0)
                     deleted_rtokens += res2.rowcount
                     if res2.rowcount < 1000:
                         break
@@ -44,14 +46,40 @@ async def garbage_collect_expired_tokens():
                             select(Session.id).where(Session.expires_at < func.now()).limit(1000)
                         )
                     )
-                    res3 = await session.execute(stmt3)
+                    res3 = await asyncio.wait_for(session.execute(stmt3), timeout=5.0)
                     deleted_sessions += res3.rowcount
                     if res3.rowcount < 1000:
+                        break
+
+                # Delete expired organization invites
+                deleted_invites = 0
+                while True:
+                    stmt4 = delete(OrganizationInvite).where(
+                        OrganizationInvite.id.in_(
+                            select(OrganizationInvite.id).where(OrganizationInvite.expires_at < func.now()).limit(1000)
+                        )
+                    )
+                    res4 = await asyncio.wait_for(session.execute(stmt4), timeout=5.0)
+                    deleted_invites += res4.rowcount
+                    if res4.rowcount < 1000:
+                        break
+
+                # Delete failed webhook deliveries
+                deleted_webhooks = 0
+                while True:
+                    stmt5 = delete(WebhookDelivery).where(
+                        WebhookDelivery.id.in_(
+                            select(WebhookDelivery.id).where(WebhookDelivery.status == "failed").limit(1000)
+                        )
+                    )
+                    res5 = await asyncio.wait_for(session.execute(stmt5), timeout=5.0)
+                    deleted_webhooks += res5.rowcount
+                    if res5.rowcount < 1000:
                         break
                 
                 await session.commit()
                 
-                logger.info(f"Garbage collection complete. Deleted: {deleted_vtokens} verification tokens, {deleted_rtokens} refresh tokens, {deleted_sessions} sessions.")
+                logger.info(f"Garbage collection complete. Deleted: {deleted_vtokens} verification tokens, {deleted_rtokens} refresh tokens, {deleted_sessions} sessions, {deleted_invites} invites, {deleted_webhooks} failed webhook deliveries.")
                 
         except asyncio.CancelledError:
             logger.info("Garbage collection task cancelled.")

@@ -29,4 +29,4 @@ class WebAuthnCredential(Base):
     
     # Relationships
     user: Mapped["User"] = relationship(back_populates="passkeys")
-    tenant: Mapped["Tenant"] = relationship()
+    tenant: Mapped["Tenant"] = relationship(back_populates="passkeys")

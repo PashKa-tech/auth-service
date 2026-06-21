@@ -20,4 +20,4 @@ class SamlConnection(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     domain_mapping: Mapped[str | None] = mapped_column(String(255), unique=True, index=True) # e.g. "company.com"
 
-    tenant: Mapped["Tenant"] = relationship()
+    tenant: Mapped["Tenant"] = relationship(back_populates="saml_connections")

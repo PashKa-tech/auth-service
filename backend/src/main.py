@@ -11,7 +11,7 @@ from src.core.logging import setup_logging, logger
 from src.core.context import set_request_id, get_request_id, set_tenant_id
 from src.core.redis import init_redis, close_redis
 from src.core.tasks import start_garbage_collector, stop_garbage_collector
-from src.core.metrics import REQUEST_LATENCY, http_requests_total, http_request_duration_seconds, auth_failures_total
+from src.core.metrics import REQUEST_LATENCY, http_requests_total, auth_failures_total
 from src.api.v1.auth import router as auth_router
 from src.api.v1.health import router as health_router
 from src.api.v1.organizations import router as organizations_router
@@ -68,21 +68,23 @@ async def prometheus_metrics_middleware(request: Request, call_next):
         return await call_next(request)
 
     start_time = time.perf_counter()
-    response = await call_next(request)
-    duration = time.perf_counter() - start_time
+    response = None
+    try:
+        response = await call_next(request)
+    finally:
+        duration = time.perf_counter() - start_time
 
-    # Get path template if available, else fallback to raw path
-    route = request.scope.get("route")
-    endpoint = route.path if route else request.url.path
-    method = request.method
-    status_code = str(response.status_code)
+        # Get path template if available, else fallback to raw path
+        route = request.scope.get("route")
+        endpoint = route.path if route else request.url.path
+        method = request.method
+        status_code = str(response.status_code) if response else "500"
 
-    REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
-    http_requests_total.labels(method=method, endpoint=endpoint, status=status_code).inc()
-    http_request_duration_seconds.labels(method=method, endpoint=endpoint).observe(duration)
+        REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
+        http_requests_total.labels(method=method, endpoint=endpoint, status=status_code).inc()
 
-    if response.status_code in (401, 403):
-        auth_failures_total.inc()
+        if response and response.status_code in (401, 403):
+            auth_failures_total.inc()
 
     return response
 

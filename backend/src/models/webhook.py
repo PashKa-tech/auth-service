@@ -21,8 +21,7 @@ class WebhookEndpoint(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    # If we add back_populates to Tenant later, we can reference it here. For now, it's unidirectional.
-    tenant: Mapped["Tenant"] = relationship()
+    tenant: Mapped["Tenant"] = relationship(back_populates="webhook_endpoints")
     deliveries: Mapped[list["WebhookDelivery"]] = relationship(back_populates="endpoint", cascade="all, delete-orphan")
 
 

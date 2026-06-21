@@ -18,4 +18,4 @@ class OAuthApplication(Base):
     allowed_scopes: Mapped[list[str]] = mapped_column(JSON, default=[])
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    tenant: Mapped["Tenant"] = relationship()
+    tenant: Mapped["Tenant"] = relationship(back_populates="oauth_applications")

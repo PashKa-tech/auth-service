@@ -297,6 +297,18 @@ class AuthService:
             )
             raise ValueError("Account is deactivated")
             
+        if not user.is_verified:
+            LOGIN_COUNTER.labels(status="failed", tenant_id=str(self.tenant_id)).inc()
+            self.audit_repo.create_background(self.background_tasks,
+                action="login_failed",
+                user_id=user.id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                device_fingerprint=fingerprint,
+                metadata_json={"reason": "unverified_email"}
+            )
+            raise ValueError("Email is not verified")
+            
         # Reset failed attempts on successful login
         if user.failed_login_attempts > 0:
             user.failed_login_attempts = 0

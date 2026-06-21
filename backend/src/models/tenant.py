@@ -8,6 +8,11 @@ from src.database import Base
 if TYPE_CHECKING:
     from src.models.user import User
     from src.models.audit import AuditLog
+    from src.models.m2m import OAuthApplication
+    from src.models.saml import SamlConnection
+    from src.models.action import Action
+    from src.models.webhook import WebhookEndpoint
+    from src.models.webauthn import WebAuthnCredential
 
 class Tenant(Base):
     __tablename__ = "tenants"
@@ -27,6 +32,11 @@ class Tenant(Base):
     audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
     api_keys: Mapped[list["TenantApiKey"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
     invites: Mapped[list["OrganizationInvite"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
+    oauth_applications: Mapped[list["OAuthApplication"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
+    saml_connections: Mapped[list["SamlConnection"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
+    actions: Mapped[list["Action"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
+    webhook_endpoints: Mapped[list["WebhookEndpoint"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
+    passkeys: Mapped[list["WebAuthnCredential"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
 
 class TenantApiKey(Base):
     __tablename__ = "tenant_api_keys"
