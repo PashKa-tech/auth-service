@@ -12,6 +12,7 @@ from src.core.context import set_request_id, get_request_id, set_tenant_id
 from src.core.redis import init_redis, close_redis
 from src.core.tasks import start_garbage_collector, stop_garbage_collector
 from src.core.metrics import REQUEST_LATENCY, http_requests_total, auth_failures_total
+from src.core.http_client import init_http_client, close_http_client
 from src.api.v1.auth import router as auth_router
 from src.api.v1.health import router as health_router
 from src.api.v1.organizations import router as organizations_router
@@ -33,11 +34,13 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Starting up Auth Service...")
     await init_redis()
+    await init_http_client()
     start_garbage_collector()
     yield
     # Shutdown
     logger.info("Shutting down Auth Service...")
     await stop_garbage_collector()
+    await close_http_client()
     await close_redis()
 
 app = FastAPI(
@@ -61,55 +64,77 @@ app.add_middleware(
 
 app.add_middleware(RBACMiddleware)
 
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 # --- Middlewares ---
 
-@app.middleware("http")
-async def prometheus_metrics_middleware(request: Request, call_next):
-    """Middleware to measure HTTP request metrics."""
-    # Exclude metrics endpoint to prevent noise
-    if request.url.path == "/metrics":
-        return await call_next(request)
+# --- ASGI Middlewares ---
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-    start_time = time.perf_counter()
-    response = None
-    try:
-        response = await call_next(request)
-    finally:
-        duration = time.perf_counter() - start_time
+class PrometheusMetricsMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
 
-        # Get path template if available, else fallback to raw path
-        route = request.scope.get("route")
-        endpoint = route.path if route else request.url.path
-        method = request.method
-        status_code = str(response.status_code) if response else "500"
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
 
-        REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
-        http_requests_total.labels(method=method, endpoint=endpoint, status=status_code).inc()
+        request = Request(scope)
+        if request.url.path == "/metrics":
+            return await self.app(scope, receive, send)
 
-        if response and response.status_code in (401, 403):
-            auth_failures_total.inc()
-
-    return response
-
-@app.middleware("http")
-async def request_tracing_middleware(request: Request, call_next):
-    """Middleware to inject X-Request-ID and handle context variables lifecycle."""
-    # Retrieve request ID or generate a new one
-    request_id = request.headers.get("X-Request-ID")
-    if not request_id:
-        request_id = f"req_{uuid.uuid4().hex[:16]}"
+        start_time = time.perf_counter()
+        status_code = "500"
         
-    # Bind request_id to contextvar
-    set_request_id(request_id)
-    
-    # Initialize tenant_id context as None for safety
-    set_tenant_id(None)
-    
-    response = await call_next(request)
-    
-    # Attach X-Request-ID to response headers
-    response.headers["X-Request-ID"] = request_id
-    return response
+        async def send_wrapper(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = str(message["status"])
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            duration = time.perf_counter() - start_time
+            route = scope.get("route")
+            endpoint = route.path if route else "unmatched_route"
+            method = scope["method"]
+
+            REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
+            http_requests_total.labels(method=method, endpoint=endpoint, status=status_code).inc()
+
+            if status_code in ("401", "403"):
+                auth_failures_total.inc()
+
+class RequestTracingMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        request = Request(scope)
+        request_id = request.headers.get("X-Request-ID")
+        if not request_id:
+            request_id = f"req_{uuid.uuid4().hex[:16]}"
+            
+        set_request_id(request_id)
+        set_tenant_id(None)
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers.append("X-Request-ID", request_id)
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+from starlette.datastructures import MutableHeaders
+app.add_middleware(PrometheusMetricsMiddleware)
+app.add_middleware(RequestTracingMiddleware)
+
 
 
 # --- Exception Handlers ---
@@ -191,5 +216,5 @@ app.include_router(scim_router, prefix=settings.API_V1_STR + "/scim/v2", tags=["
 app.include_router(actions_router, prefix=settings.API_V1_STR + "/organizations/actions", tags=["actions"])
 
 @app.get("/")
-def root():
+async def root():
     return {"status": "ok", "service": "auth-service"}

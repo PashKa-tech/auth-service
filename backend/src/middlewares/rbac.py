@@ -31,7 +31,7 @@ class RBACMiddleware(BaseHTTPMiddleware):
                     }
                 )
             
-            payload = verify_access_token(token)
+            payload = await verify_access_token(token)
             if not payload:
                 request_id = request.headers.get("X-Request-ID") or get_request_id() or "-"
                 return JSONResponse(

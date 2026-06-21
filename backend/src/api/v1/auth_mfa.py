@@ -78,7 +78,7 @@ async def verify_2fa(
         lang = request.headers.get("Accept-Language")
 
         from src.core.security import verify_mfa_token
-        payload = verify_mfa_token(body.mfa_token)
+        payload = await verify_mfa_token(body.mfa_token)
         if not payload:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired 2FA token")
             

@@ -18,3 +18,7 @@ def init_tracing(app: FastAPI):
     trace.set_tracer_provider(provider)
     
     FastAPIInstrumentor.instrument_app(app)
+    
+    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+    from src.database import async_engine
+    SQLAlchemyInstrumentor().instrument(engine=async_engine.sync_engine)

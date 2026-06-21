@@ -2,6 +2,7 @@ import json
 import hmac
 import hashlib
 import httpx
+from src.core.http_client import http_client
 import uuid
 from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,13 +48,14 @@ async def deliver_webhook_background(delivery_id: uuid.UUID):
             delivery.attempt_count += 1
             
             try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    response = await client.post(
-                        endpoint.url,
-                        json=delivery.payload,
-                        headers=headers
-                    )
-                    response.raise_for_status()
+                # Use global http_client if available, otherwise fallback (tests)
+                client_to_use = http_client if http_client else httpx.AsyncClient(timeout=10.0)
+                response = await client_to_use.post(
+                    endpoint.url,
+                    json=delivery.payload,
+                    headers=headers
+                )
+                response.raise_for_status()
                     
                 delivery.status = "success"
                 delivery.last_error = None
@@ -108,12 +110,10 @@ class WebhookService:
         """
         Dispatches an event to all subscribed webhook endpoints for a given tenant.
         """
-        result = await self.db.execute(
+        result = await self.db.stream(
             select(WebhookEndpoint).where(WebhookEndpoint.tenant_id == tenant_id)
         )
-        endpoints = result.scalars().all()
-
-        for endpoint in endpoints:
+        async for endpoint in result.scalars():
             if not endpoint.events_list or event_type in endpoint.events_list or "*" in endpoint.events_list:
                 delivery = WebhookDelivery(
                     endpoint_id=endpoint.id,

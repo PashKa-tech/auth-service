@@ -19,9 +19,10 @@ async def garbage_collect_expired_tokens():
                         VerificationToken.id.in_(
                             select(VerificationToken.id).where(VerificationToken.expires_at < func.now()).limit(1000)
                         )
-                    )
+                    ).execution_options(synchronize_session=False)
                     res1 = await asyncio.wait_for(session.execute(stmt1), timeout=5.0)
                     deleted_vtokens += res1.rowcount
+                    await session.commit()
                     if res1.rowcount < 1000:
                         break
                     await asyncio.sleep(0.1)
@@ -33,9 +34,10 @@ async def garbage_collect_expired_tokens():
                         RefreshToken.id.in_(
                             select(RefreshToken.id).where(RefreshToken.expires_at < func.now()).limit(1000)
                         )
-                    )
+                    ).execution_options(synchronize_session=False)
                     res2 = await asyncio.wait_for(session.execute(stmt2), timeout=5.0)
                     deleted_rtokens += res2.rowcount
+                    await session.commit()
                     if res2.rowcount < 1000:
                         break
                     await asyncio.sleep(0.1)
@@ -47,9 +49,10 @@ async def garbage_collect_expired_tokens():
                         Session.id.in_(
                             select(Session.id).where(Session.expires_at < func.now()).limit(1000)
                         )
-                    )
+                    ).execution_options(synchronize_session=False)
                     res3 = await asyncio.wait_for(session.execute(stmt3), timeout=5.0)
                     deleted_sessions += res3.rowcount
+                    await session.commit()
                     if res3.rowcount < 1000:
                         break
                     await asyncio.sleep(0.1)
@@ -61,28 +64,34 @@ async def garbage_collect_expired_tokens():
                         OrganizationInvite.id.in_(
                             select(OrganizationInvite.id).where(OrganizationInvite.expires_at < func.now()).limit(1000)
                         )
-                    )
+                    ).execution_options(synchronize_session=False)
                     res4 = await asyncio.wait_for(session.execute(stmt4), timeout=5.0)
                     deleted_invites += res4.rowcount
+                    await session.commit()
                     if res4.rowcount < 1000:
                         break
                     await asyncio.sleep(0.1)
 
-                # Delete failed webhook deliveries
+                # Delete webhook deliveries
                 deleted_webhooks = 0
+                from datetime import timedelta
+                import datetime
                 while True:
+                    thirty_days_ago = func.now() - datetime.timedelta(days=30)
                     stmt5 = delete(WebhookDelivery).where(
                         WebhookDelivery.id.in_(
-                            select(WebhookDelivery.id).where(WebhookDelivery.status == "failed").limit(1000)
+                            select(WebhookDelivery.id).where(
+                                (WebhookDelivery.status == "failed") |
+                                (WebhookDelivery.created_at < thirty_days_ago)
+                            ).limit(1000)
                         )
-                    )
+                    ).execution_options(synchronize_session=False)
                     res5 = await asyncio.wait_for(session.execute(stmt5), timeout=5.0)
                     deleted_webhooks += res5.rowcount
+                    await session.commit()
                     if res5.rowcount < 1000:
                         break
                     await asyncio.sleep(0.1)
-                
-                await session.commit()
                 
                 logger.info(f"Garbage collection complete. Deleted: {deleted_vtokens} verification tokens, {deleted_rtokens} refresh tokens, {deleted_sessions} sessions, {deleted_invites} invites, {deleted_webhooks} failed webhook deliveries.")
                 

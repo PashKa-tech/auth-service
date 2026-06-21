@@ -203,7 +203,7 @@ async def oauth_callback(
             token = auth_header.split(" ")[1]
         if token:
             from src.core.security import verify_access_token
-            payload = verify_access_token(token)
+            payload = await verify_access_token(token)
             if payload:
                 user_id_str = payload.get("sub")
                 if user_id_str:
@@ -248,7 +248,7 @@ async def oauth_callback(
                     "client_redirect_uri": redirect_url,
                     "client_state": client_state
                 }
-            mfa_token = create_mfa_token(user.id, tenant_id, extra_payload=extra)
+            mfa_token = await create_mfa_token(user.id, tenant_id, extra_payload=extra)
             await auth_service.audit_repo.create(
                 action="2fa_challenge_issued",
                 user_id=user.id,

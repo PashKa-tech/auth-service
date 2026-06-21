@@ -61,25 +61,40 @@ def serialize_scim_user(user: User) -> dict:
 
 # --- Endpoints ---
 
+from fastapi import Query
 @router.get("/Users", status_code=status.HTTP_200_OK)
 async def list_users(
     request: Request,
+    startIndex: int = Query(1, ge=1),
+    count: int = Query(50, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(resolve_tenant) # SCIM must be authenticated via M2M or API Key
+    tenant_id: uuid.UUID = Depends(resolve_tenant)
 ):
     """SCIM: List Users"""
-    # Simple implementation: SCIM requires pagination and filtering (startIndex, count, filter)
-    # We return all for MVP.
-    res = await db.execute(select(User).where(User.tenant_id == tenant_id))
+    offset = startIndex - 1
+    
+    # Get total count
+    from sqlalchemy import func
+    count_res = await db.execute(select(func.count(User.id)).where(User.tenant_id == tenant_id))
+    total_results = count_res.scalar_one()
+
+    # Get paginated results
+    res = await db.execute(
+        select(User)
+        .where(User.tenant_id == tenant_id)
+        .order_by(User.created_at)
+        .offset(offset)
+        .limit(count)
+    )
     users = res.scalars().all()
     
     resources = [serialize_scim_user(u) for u in users]
     
     return {
         "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
-        "totalResults": len(resources),
-        "startIndex": 1,
-        "itemsPerPage": len(resources) if resources else 0,
+        "totalResults": total_results,
+        "startIndex": startIndex,
+        "itemsPerPage": count,
         "Resources": resources
     }
 
@@ -112,7 +127,7 @@ async def create_user(
     if res.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="User already exists")
         
-    pwd_hash = hash_password(body.password) if body.password else None
+    pwd_hash = await hash_password(body.password) if body.password else None
         
     user = User(
         tenant_id=tenant_id,

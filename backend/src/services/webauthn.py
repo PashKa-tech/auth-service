@@ -93,7 +93,7 @@ class WebAuthnService:
             raise ValueError("Challenge expired or not found")
 
         try:
-            credential = RegistrationCredential.parse_raw(json.dumps(response_data))
+            credential = RegistrationCredential.parse_obj(response_data)
             verification = verify_registration_response(
                 credential=credential,
                 expected_challenge=expected_challenge,
@@ -159,7 +159,7 @@ class WebAuthnService:
             raise ValueError("Challenge expired or not found")
 
         try:
-            credential = AuthenticationCredential.parse_raw(json.dumps(response_data))
+            credential = AuthenticationCredential.parse_obj(response_data)
         except Exception as e:
             raise ValueError(f"Invalid credential payload: {str(e)}")
 

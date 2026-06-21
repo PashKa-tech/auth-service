@@ -125,7 +125,7 @@ class AuthService:
             logger.error(f"Post-login action error: {e}")
             raise ValueError(str(e)) # We fail closed on action explicit denies
 
-        access_token = create_access_token(
+        access_token = await create_access_token(
             subject=user.id,
             tenant_id=self.tenant_id,
             role=user.role,
@@ -317,7 +317,7 @@ class AuthService:
 
         # Check if 2FA is enabled
         if user.is_two_factor_enabled:
-            mfa_token = create_mfa_token(user.id, self.tenant_id)
+            mfa_token = await create_mfa_token(user.id, self.tenant_id)
             self.audit_repo.create_background(self.background_tasks,
                 action="2fa_challenge_issued",
                 user_id=user.id,
@@ -379,7 +379,7 @@ class AuthService:
         fingerprint = calculate_device_fingerprint(user_agent, ip_address, accept_language)
 
         # 1. Verify MFA token
-        payload = verify_mfa_token(mfa_token)
+        payload = await verify_mfa_token(mfa_token)
         if not payload or str(payload.get("tenant_id")) != str(self.tenant_id):
             raise ValueError("Invalid or expired 2FA token")
             

@@ -3,6 +3,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pathlib import Path
+import asyncio
 
 from src.config import settings
 from src.core.logging import logger
@@ -57,7 +58,8 @@ class EmailService:
 
     async def send_verification_email(self, email: str, verification_link: str):
         template = self.env.get_template("email_verify.html")
-        html_content = template.render(verification_link=verification_link, email=email)
+        loop = asyncio.get_running_loop()
+        html_content = await loop.run_in_executor(None, template.render, {"verification_link": verification_link, "email": email})
         await self.send_email(
             to_email=email,
             subject="Verify your email address",
@@ -66,7 +68,8 @@ class EmailService:
 
     async def send_password_reset_email(self, email: str, reset_link: str):
         template = self.env.get_template("password_reset.html")
-        html_content = template.render(reset_link=reset_link, email=email)
+        loop = asyncio.get_running_loop()
+        html_content = await loop.run_in_executor(None, template.render, {"reset_link": reset_link, "email": email})
         await self.send_email(
             to_email=email,
             subject="Reset your password",

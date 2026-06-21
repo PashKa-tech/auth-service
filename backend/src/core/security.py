@@ -35,7 +35,7 @@ async def verify_password(password: str, hashed_password: str) -> bool:
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, verify_password_sync, password, hashed_password)
 
-def create_access_token(
+def create_access_token_sync(
     subject: str | uuid.UUID,
     tenant_id: uuid.UUID,
     role: str,
@@ -43,7 +43,7 @@ def create_access_token(
     expires_delta: timedelta | None = None,
     custom_claims: dict | None = None
 ) -> str:
-    """Generate a short-lived JWT Access Token."""
+    """Generate a short-lived JWT Access Token synchronously."""
     now = datetime.now(timezone.utc)
     if expires_delta:
         expire = now + expires_delta
@@ -66,11 +66,26 @@ def create_access_token(
     from src.core.keys import get_rsa_keys
     private_key, _, _ = get_rsa_keys()
     
-    # We serialize the key or pass the object directly. PyJWT supports cryptography objects.
     return jwt.encode(payload, private_key, algorithm="RS256", headers={"kid": "auth-service-key-1"})
 
-def verify_access_token(token: str) -> dict | None:
-    """Verify and decode a JWT Access Token."""
+async def create_access_token(
+    subject: str | uuid.UUID,
+    tenant_id: uuid.UUID,
+    role: str,
+    session_id: uuid.UUID,
+    expires_delta: timedelta | None = None,
+    custom_claims: dict | None = None
+) -> str:
+    """Generate a short-lived JWT Access Token without blocking the event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, 
+        create_access_token_sync, 
+        subject, tenant_id, role, session_id, expires_delta, custom_claims
+    )
+
+def verify_access_token_sync(token: str) -> dict | None:
+    """Verify and decode a JWT Access Token synchronously."""
     try:
         from src.core.keys import get_rsa_keys
         _, public_key, _ = get_rsa_keys()
@@ -87,6 +102,11 @@ def verify_access_token(token: str) -> dict | None:
     except (jwt.PyJWTError, ValueError):
         return None
 
+async def verify_access_token(token: str) -> dict | None:
+    """Verify and decode a JWT Access Token without blocking the event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, verify_access_token_sync, token)
+
 def generate_opaque_token() -> str:
     """Generate a cryptographically secure 256-bit entropy token."""
     # secrets.token_urlsafe(32) generates about 43 chars containing 256 bits of entropy
@@ -96,8 +116,8 @@ def hash_opaque_token(token: str) -> str:
     """Hash an opaque token using SHA-256 for secure database storage."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
-def create_mfa_token(user_id: uuid.UUID, tenant_id: uuid.UUID, extra_payload: dict | None = None) -> str:
-    """Generate a short-lived (5 min) MFA challenge token."""
+def create_mfa_token_sync(user_id: uuid.UUID, tenant_id: uuid.UUID, extra_payload: dict | None = None) -> str:
+    """Generate a short-lived (5 min) MFA challenge token synchronously."""
     now = datetime.now(timezone.utc)
     expire = now + timedelta(minutes=settings.MFA_TOKEN_EXPIRE_MINUTES)
     
@@ -114,8 +134,13 @@ def create_mfa_token(user_id: uuid.UUID, tenant_id: uuid.UUID, extra_payload: di
         
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
-def verify_mfa_token(token: str) -> dict | None:
-    """Verify and decode a short-lived MFA challenge token."""
+async def create_mfa_token(user_id: uuid.UUID, tenant_id: uuid.UUID, extra_payload: dict | None = None) -> str:
+    """Generate a short-lived MFA challenge token without blocking the event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, create_mfa_token_sync, user_id, tenant_id, extra_payload)
+
+def verify_mfa_token_sync(token: str) -> dict | None:
+    """Verify and decode a short-lived MFA challenge token synchronously."""
     try:
         payload = jwt.decode(
             token,
@@ -128,6 +153,11 @@ def verify_mfa_token(token: str) -> dict | None:
         return payload
     except (jwt.PyJWTError, ValueError):
         return None
+
+async def verify_mfa_token(token: str) -> dict | None:
+    """Verify and decode a short-lived MFA challenge token without blocking the event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, verify_mfa_token_sync, token)
 
 def verify_pkce(verifier: str, challenge: str, method: str = "S256") -> bool:
     """Verify code_verifier against code_challenge using challenge method."""

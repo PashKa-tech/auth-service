@@ -18,6 +18,20 @@ settings.DATABASE_URL = TEST_DB_URL
 settings.ENV = "testing"
 settings.USE_FAKEREDIS = True
 
+# Lower Argon2 costs for faster tests
+settings.ARGON2_TIME_COST = 1
+settings.ARGON2_MEMORY_COST = 8
+settings.ARGON2_PARALLELISM = 1
+
+# Re-initialize the PasswordHasher in security with new settings
+import src.core.security as security
+from argon2 import PasswordHasher
+security.ph = PasswordHasher(
+    time_cost=settings.ARGON2_TIME_COST,
+    memory_cost=settings.ARGON2_MEMORY_COST,
+    parallelism=settings.ARGON2_PARALLELISM,
+)
+
 from src.database import Base, get_db
 from src.models.tenant import Tenant
 from src.main import app
@@ -115,6 +129,14 @@ def mock_pwned_password(monkeypatch):
     async def mock_check(*args, **kwargs):
         return False
     monkeypatch.setattr(security, "check_pwned_password", mock_check)
+
+@pytest.fixture(autouse=True)
+def mock_ip_api(monkeypatch):
+    """Automatically mock ip-api.com to prevent network calls during tests."""
+    async def mock_fetch_and_update_geoip(session_id, ip_address):
+        pass # Do nothing
+    import src.repositories.session as session_repo
+    monkeypatch.setattr(session_repo, "fetch_and_update_geoip", mock_fetch_and_update_geoip)
 
 @pytest.fixture(autouse=True)
 def mock_async_session_factory(monkeypatch):

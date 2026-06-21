@@ -35,7 +35,7 @@ async def _resolve_from_token(request: Request) -> uuid.UUID | None:
         token = auth_header.split(" ")[1]
         
     if token:
-        payload = verify_access_token(token)
+        payload = await verify_access_token(token)
         if payload and "tenant_id" in payload:
             try:
                 return uuid.UUID(payload["tenant_id"])
@@ -156,7 +156,7 @@ async def _resolve_from_mfa_token(request: Request) -> uuid.UUID | None:
             mfa_token_body = body_json.get("mfa_token")
             if mfa_token_body:
                 from src.core.security import verify_mfa_token
-                payload = verify_mfa_token(mfa_token_body)
+                payload = await verify_mfa_token(mfa_token_body)
                 if payload and "tenant_id" in payload:
                     return uuid.UUID(payload["tenant_id"])
         except Exception:
@@ -367,7 +367,7 @@ async def get_current_user(
             detail="Not authenticated"
         )
         
-    payload = verify_access_token(token)
+    payload = await verify_access_token(token)
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -501,7 +501,7 @@ async def requires_fresh_auth(
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
         
-    payload = verify_access_token(token)
+    payload = await verify_access_token(token)
     if not payload:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         
