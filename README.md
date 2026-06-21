@@ -41,7 +41,7 @@ OmniAuth is an open-source identity and access management (IAM) solution designe
   - Two-Factor Authentication (2FA) via TOTP and SMS.
   - Granular Role-Based Access Control (RBAC) and Attribute-Based Access Control (ABAC).
   - Built-in Bot Protection with **Google reCAPTCHA v3** and **Custom Captcha** fallback.
-- **Developer First**: Comprehensive Admin Dashboard, exhaustive Audit Logs, and fully typed REST/GraphQL APIs.
+- **Developer First**: Comprehensive Admin Dashboard, exhaustive Audit Logs, and fully typed REST APIs.
 
 ---
 
@@ -85,7 +85,6 @@ For an in-depth look at our design decisions and system components, please read 
 
 - **Deployment Guide**: Learn how to deploy to AWS, GCP, or Azure via Kubernetes.
 - **API Reference**: Comprehensive Swagger and ReDoc generated documentation.
-- **SDKs**: Official SDKs for React, Node.js, Python, and Go.
 
 ## 🤝 Contributing
 

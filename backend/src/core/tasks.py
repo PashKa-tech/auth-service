@@ -1,5 +1,5 @@
 import asyncio
-from sqlalchemy import delete, func
+from sqlalchemy import delete, func, select
 from src.database import async_session_factory
 from src.models.session import Session
 from src.models.token import RefreshToken, VerificationToken
@@ -11,21 +11,47 @@ async def garbage_collect_expired_tokens():
         try:
             logger.info("Running garbage collection for expired tokens and sessions.")
             async with async_session_factory() as session:
-                # Delete expired verification tokens
-                stmt1 = delete(VerificationToken).where(VerificationToken.expires_at < func.now())
-                result1 = await session.execute(stmt1)
+                deleted_vtokens = 0
+                while True:
+                    stmt1 = delete(VerificationToken).where(
+                        VerificationToken.id.in_(
+                            select(VerificationToken.id).where(VerificationToken.expires_at < func.now()).limit(1000)
+                        )
+                    )
+                    res1 = await session.execute(stmt1)
+                    deleted_vtokens += res1.rowcount
+                    if res1.rowcount < 1000:
+                        break
                 
                 # Delete expired refresh tokens
-                stmt2 = delete(RefreshToken).where(RefreshToken.expires_at < func.now())
-                result2 = await session.execute(stmt2)
+                deleted_rtokens = 0
+                while True:
+                    stmt2 = delete(RefreshToken).where(
+                        RefreshToken.id.in_(
+                            select(RefreshToken.id).where(RefreshToken.expires_at < func.now()).limit(1000)
+                        )
+                    )
+                    res2 = await session.execute(stmt2)
+                    deleted_rtokens += res2.rowcount
+                    if res2.rowcount < 1000:
+                        break
                 
                 # Delete expired sessions
-                stmt3 = delete(Session).where(Session.expires_at < func.now())
-                result3 = await session.execute(stmt3)
+                deleted_sessions = 0
+                while True:
+                    stmt3 = delete(Session).where(
+                        Session.id.in_(
+                            select(Session.id).where(Session.expires_at < func.now()).limit(1000)
+                        )
+                    )
+                    res3 = await session.execute(stmt3)
+                    deleted_sessions += res3.rowcount
+                    if res3.rowcount < 1000:
+                        break
                 
                 await session.commit()
                 
-                logger.info(f"Garbage collection complete. Deleted: {result1.rowcount} verification tokens, {result2.rowcount} refresh tokens, {result3.rowcount} sessions.")
+                logger.info(f"Garbage collection complete. Deleted: {deleted_vtokens} verification tokens, {deleted_rtokens} refresh tokens, {deleted_sessions} sessions.")
                 
         except asyncio.CancelledError:
             logger.info("Garbage collection task cancelled.")

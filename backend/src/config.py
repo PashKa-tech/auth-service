@@ -1,7 +1,7 @@
 import os
 from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, model_validator
 
 class Settings(BaseSettings):
     ENV: Literal["development", "testing", "production"] = "development"
@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     # Base URL / CORS
     APP_NAME: str = "Auth Service"
     API_V1_STR: str = "/api/v1/auth"
+    CORS_ORIGINS: list[str] = Field(default=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"])
     
     # Database
     DATABASE_URL: str = Field(default="postgresql+asyncpg://user:password@localhost:5432/authdb")
@@ -105,10 +106,20 @@ class Settings(BaseSettings):
     def get_redirect_uri(self, provider: str) -> str:
         return f"{self.API_BASE_URL}/api/v1/auth/oauth/{provider}/callback"
 
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> "Settings":
+        if self.ENV == "production":
+            if self.JWT_SECRET_KEY == "dev_jwt_secret_key_change_me_in_production":
+                raise ValueError("JWT_SECRET_KEY must be changed in production")
+            if self.SUPER_ADMIN_API_KEY == "super-admin-secret-key-change-me":
+                raise ValueError("SUPER_ADMIN_API_KEY must be changed in production")
+        return self
+
     model_config = SettingsConfigDict(
         env_file=os.getenv("ENV_FILE", ".env.dev"),
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
+        secrets_dir=os.getenv("SECRETS_DIR", None)
     )
 
 settings = Settings()

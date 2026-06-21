@@ -346,13 +346,17 @@ async def get_current_user(
             detail="Invalid token identifier formats"
         )
         
-    # Check Redis for session validity to save DB query
+    # Check Redis for session validity and cached user to save DB query
     from src.core.redis import init_redis
+    import json
     redis_client = await init_redis()
-    cache_key = f"session_valid:{session_uuid}"
-    is_valid = await redis_client.get(cache_key)
+    cache_key = f"session_user:{session_uuid}"
+    cached_data = await redis_client.get(cache_key)
     
-    if is_valid != b"1":
+    if cached_data:
+        user_data = json.loads(cached_data)
+        user = User(id=uuid.UUID(user_data["id"]), role=user_data["role"], is_active=user_data["is_active"], email=user_data.get("email", ""))
+    else:
         # Check if session is revoked in DB
         from src.models.session import Session as DBSession
         from sqlalchemy import select
@@ -365,17 +369,19 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Session has been revoked or expired"
             )
-        # Cache for 60 seconds
-        await redis_client.set(cache_key, "1", ex=60)
 
-    # Fetch user
-    user = await user_repo.get_by_id(user_uuid)
-    if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or deactivated"
-        )
-        
+        # Fetch user
+        user = await user_repo.get_by_id(user_uuid)
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found or deactivated"
+            )
+            
+        # Cache for 60 seconds
+        user_data = {"id": str(user.id), "role": user.role, "is_active": user.is_active, "email": user.email}
+        await redis_client.set(cache_key, json.dumps(user_data), ex=60)
+
     # Inject session_id into request state for endpoint handlers
     request.state.session_id = session_uuid
     

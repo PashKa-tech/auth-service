@@ -8,6 +8,8 @@ from src.config import settings
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.ENV == "development",
+    pool_size=50,
+    max_overflow=100
 )
 
 # Create Session Factory

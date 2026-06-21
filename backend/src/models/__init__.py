@@ -11,6 +11,7 @@ from src.models.webauthn import WebAuthnCredential
 from src.models.webhook import WebhookEndpoint, WebhookDelivery
 from src.models.rbac import Role, RolePermission, UserRole
 from src.models.saml import SamlConnection
+from src.models.action import Action
 
 __all__ = [
     "Base",
@@ -32,4 +33,5 @@ __all__ = [
     "RolePermission",
     "UserRole",
     "SamlConnection",
+    "Action",
 ]

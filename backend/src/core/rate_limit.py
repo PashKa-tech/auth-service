@@ -65,11 +65,17 @@ class RateLimiter:
         limit = self.limit
         if tenant_id_val:
             try:
-                stmt = select(Tenant.rate_limit_rpm).where(Tenant.id == tenant_id_val)
-                result = await db.execute(stmt)
-                tenant_limit = result.scalar_one_or_none()
-                if tenant_limit is not None:
-                    limit = tenant_limit
+                client = await init_redis()
+                cached_limit = await client.get(f"tenant_limit:{tenant_id_val}")
+                if cached_limit:
+                    limit = int(cached_limit)
+                else:
+                    stmt = select(Tenant.rate_limit_rpm).where(Tenant.id == tenant_id_val)
+                    result = await db.execute(stmt)
+                    tenant_limit = result.scalar_one_or_none()
+                    if tenant_limit is not None:
+                        limit = tenant_limit
+                        await client.set(f"tenant_limit:{tenant_id_val}", limit, ex=300)
             except Exception as e:
                 logger.error(f"Failed to fetch tenant rate limit for {tenant_id_val}: {str(e)}")
         
