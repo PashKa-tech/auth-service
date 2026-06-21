@@ -139,7 +139,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      redis-master:
         condition: service_healthy
     labels:
       - "traefik.enable=true"
