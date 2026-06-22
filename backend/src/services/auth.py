@@ -229,7 +229,7 @@ class AuthService:
             is_verified=False # Requires verification link (Phase 2)
         )
 
-        expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=24)
+        expiry = datetime.now(timezone.utc) + timedelta(hours=24)
         raw_token = await self.verification_token_repo.create_token(
             user_id=user.id,
             token_type='email_verify',
@@ -280,7 +280,7 @@ class AuthService:
         await self._check_ip_anomaly(user.id, ip_address, user_agent, fingerprint)
 
         # Create Session
-        session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        session_expiry = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         session = await self.session_repo.create(
             user_id=user.id,
             expires_at=session_expiry,
@@ -328,14 +328,14 @@ class AuthService:
         user = await self.user_repo.get_by_email(email)
         
         # Check if locked out
-        if user and user.locked_until and user.locked_until > datetime.now(timezone.utc).replace(tzinfo=None):
+        if user and user.locked_until and user.locked_until > datetime.now(timezone.utc):
             raise ValueError("Account is temporarily locked due to multiple failed login attempts. Please try again later or reset your password.")
             
         if not user or not user.password_hash or not await verify_password(password, user.password_hash):
             if user:
                 user.failed_login_attempts += 1
                 if user.failed_login_attempts >= 5:
-                    user.locked_until = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=15)
+                    user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=15)
                 await self.user_repo.db.commit()
                 
             LOGIN_COUNTER.labels(status="failed", tenant_id=str(self.tenant_id)).inc()
@@ -483,12 +483,12 @@ class AuthService:
             raise ValueError("Session revoked due to token reuse detection")
 
         # 3. Check expiration
-        if token.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+        if token.expires_at < datetime.now(timezone.utc):
             REFRESH_COUNTER.labels(status="failed").inc()
             raise ValueError("Refresh token expired")
  
         # 4. Check if session is revoked
-        if session.is_revoked or session.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+        if session.is_revoked or session.expires_at < datetime.now(timezone.utc):
             REFRESH_COUNTER.labels(status="failed").inc()
             raise ValueError("Session is expired or revoked")
 
@@ -610,7 +610,7 @@ class AuthService:
         if user.is_verified:
             return
             
-        expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=24)
+        expiry = datetime.now(timezone.utc) + timedelta(hours=24)
         
         raw_token = await self.verification_token_repo.create_token(
             user_id=user.id,
@@ -631,7 +631,7 @@ class AuthService:
         if not v_token:
             raise ValueError("Invalid or expired verification token")
             
-        if v_token.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+        if v_token.expires_at < datetime.now(timezone.utc):
             await self.verification_token_repo.delete_token(v_token.id)
             raise ValueError("Verification token has expired")
             
@@ -658,7 +658,7 @@ class AuthService:
             logger.warning(f"Password reset requested for non-existent email {email}")
             return
             
-        expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1)
+        expiry = datetime.now(timezone.utc) + timedelta(hours=1)
         
         raw_token = await self.verification_token_repo.create_token(
             user_id=user.id,
@@ -679,7 +679,7 @@ class AuthService:
         if not v_token:
             raise ValueError("Invalid or expired password reset token")
             
-        if v_token.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+        if v_token.expires_at < datetime.now(timezone.utc):
             await self.verification_token_repo.delete_token(v_token.id)
             raise ValueError("Password reset token has expired")
             

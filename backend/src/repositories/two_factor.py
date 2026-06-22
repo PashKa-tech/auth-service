@@ -32,7 +32,7 @@ class TwoFactorRepository(TenantScopedRepository):
         if code.tenant_id != self.tenant_id:
             raise ValueError("Cross-tenant backup code access blocked.")
         code.is_used = True
-        code.used_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        code.used_at = datetime.datetime.now(datetime.timezone.utc)
         self.db.add(code)
         await self.db.flush()
         return code

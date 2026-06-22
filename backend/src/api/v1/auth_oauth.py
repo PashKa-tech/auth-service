@@ -306,7 +306,7 @@ async def oauth_callback(
                 state_query = f"&state={client_state}" if client_state else ""
                 return RedirectResponse(url=f"{redirect_url}{separator}code={auth_code}{state_query}")
 
-        session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        session_expiry = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         session = await auth_service.session_repo.create(
             user_id=user.id,
             expires_at=session_expiry,

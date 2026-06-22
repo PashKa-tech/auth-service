@@ -118,7 +118,7 @@ async def verify_passwordless(
     accept_language = request.headers.get("Accept-Language")
     fingerprint = calculate_device_fingerprint(user_agent, client_ip, accept_language)
     
-    session_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    session_expiry = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     session = await auth_service.session_repo.create(
         user_id=user.id,
         expires_at=session_expiry,
