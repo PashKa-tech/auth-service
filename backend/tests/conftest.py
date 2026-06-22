@@ -69,38 +69,45 @@ async def reset_redis_client():
 
 @pytest.fixture(scope="session", autouse=True)
 async def setup_test_db():
-    """Create all tables and seed a default test tenant."""
+    """Create all tables."""
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         
-    # Seed default tenant
-    async with TestSessionLocal() as db:
-        # Check if tenant already exists (safety)
-        from sqlalchemy import select
-        res = await db.execute(select(Tenant).where(Tenant.id == TEST_TENANT_ID))
-        if not res.scalar_one_or_none():
-            tenant = Tenant(
-                id=TEST_TENANT_ID,
-                name="Test Corporate Tenant"
-            )
-            db.add(tenant)
-            
-            from src.models.tenant import TenantApiKey
-            api_key = TenantApiKey(
-                tenant_id=TEST_TENANT_ID,
-                name="Test Key",
-                key_prefix="test_",
-                api_key_hash=TEST_API_KEY_HASH
-            )
-            db.add(api_key)
-            await db.commit()
-            
     yield
     
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await test_engine.dispose()
     postgres_container.stop()
+
+@pytest.fixture(autouse=True)
+async def clear_and_seed_db():
+    """Clear database tables before each test and reseed default tenant."""
+    from sqlalchemy import text
+    
+    # Truncate all tables
+    async with test_engine.begin() as conn:
+        tables = ", ".join([table.name for table in Base.metadata.sorted_tables])
+        if tables:
+            await conn.execute(text(f'TRUNCATE TABLE {tables} CASCADE;'))
+            
+    # Seed default tenant
+    async with TestSessionLocal() as db:
+        tenant = Tenant(
+            id=TEST_TENANT_ID,
+            name="Test Corporate Tenant"
+        )
+        db.add(tenant)
+        
+        from src.models.tenant import TenantApiKey
+        api_key = TenantApiKey(
+            tenant_id=TEST_TENANT_ID,
+            name="Test Key",
+            key_prefix="test_",
+            api_key_hash=TEST_API_KEY_HASH
+        )
+        db.add(api_key)
+        await db.commit()
 
 @pytest.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
