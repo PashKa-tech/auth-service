@@ -73,7 +73,8 @@ async def setup_test_db():
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         from sqlalchemy import text
-        await conn.execute(text("CREATE TABLE IF NOT EXISTS audit_logs_default PARTITION OF audit_logs DEFAULT;"))
+        if test_engine.dialect.name == "postgresql":
+            await conn.execute(text("CREATE TABLE IF NOT EXISTS audit_logs_default PARTITION OF audit_logs DEFAULT;"))
         
     yield
     
@@ -87,11 +88,19 @@ async def clear_and_seed_db():
     """Clear database tables before each test and reseed default tenant."""
     from sqlalchemy import text
     
-    # Truncate all tables
+    # Kill any dangling transactions (e.g., from background tasks) that could block TRUNCATE
     async with test_engine.begin() as conn:
-        tables = ", ".join([table.name for table in Base.metadata.sorted_tables])
+        if test_engine.dialect.name == "postgresql":
+            await conn.execute(text('''
+                SELECT pg_terminate_backend(pg_stat_activity.pid)
+                FROM pg_stat_activity
+                WHERE pg_stat_activity.datname = current_database()
+                  AND pid <> pg_backend_pid();
+            '''))
+            
+        tables = ", ".join([f'"{table.name}"' for table in Base.metadata.sorted_tables])
         if tables:
-            await conn.execute(text(f'TRUNCATE TABLE {tables} CASCADE;'))
+            await conn.execute(text(f'TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE;'))
             
     # Seed default tenant
     async with TestSessionLocal() as db:

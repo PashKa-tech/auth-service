@@ -31,7 +31,7 @@ target_metadata = Base.metadata
 
 def include_name(name, type_, parent_names):
     if type_ == "table":
-        if name and name.startswith("audit_logs_y"):
+        if name and (name.startswith("audit_logs_y") or name == "audit_logs_default"):
             return False
     return True
 

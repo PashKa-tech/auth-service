@@ -19,6 +19,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Drop old monthly partitions to avoid overlap error
+    op.execute("DROP TABLE IF EXISTS audit_logs_y2026m06;")
+    op.execute("DROP TABLE IF EXISTS audit_logs_y2026m07;")
+    
     # Create partitions for 2026, 2027
     op.execute("""
         CREATE TABLE IF NOT EXISTS audit_logs_y2026 PARTITION OF audit_logs
