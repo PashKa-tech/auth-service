@@ -25,6 +25,7 @@ class TokenRepository(TenantScopedRepository):
             raise ValueError("Session not found in this tenant context.")
 
         token = RefreshToken(
+            tenant_id=self.tenant_id,
             session_id=session_id,
             token_hash=token_hash,
             family_id=family_id,
@@ -95,6 +96,7 @@ class VerificationTokenRepository(TenantScopedRepository):
             raise ValueError("User not found in this tenant context.")
             
         token = VerificationToken(
+            tenant_id=self.tenant_id,
             user_id=user_id,
             token=token_string,
             token_type=token_type,

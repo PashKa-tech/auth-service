@@ -75,6 +75,7 @@ class SessionRepository(TenantScopedRepository):
 
         location = None
         session = Session(
+            tenant_id=self.tenant_id,
             user_id=user_id,
             expires_at=expires_at,
             ip_address=ip_address,
