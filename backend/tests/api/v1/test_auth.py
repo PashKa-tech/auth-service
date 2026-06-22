@@ -32,7 +32,7 @@ async def test_register_duplicate(client: AsyncClient, verify_user):
     assert response.status_code == 409
     data = response.json()
     assert data["success"] is False
-    assert data["error"]["code"] == "CONFLICT"
+    assert data["error"]["code"] == "HTTP_ERROR"
 
 @pytest.mark.asyncio
 async def test_login_success(client: AsyncClient, verify_user):

@@ -407,7 +407,7 @@ async def get_current_user(
             select(DBSession).where(DBSession.id == session_uuid, DBSession.is_revoked == False)
         )
         session = result_session.scalar_one_or_none()
-        if not session or session.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+        if not session or session.expires_at < datetime.now(timezone.utc):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Session has been revoked or expired"

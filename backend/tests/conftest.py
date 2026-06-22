@@ -72,6 +72,8 @@ async def setup_test_db():
     """Create all tables."""
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        from sqlalchemy import text
+        await conn.execute(text("CREATE TABLE IF NOT EXISTS audit_logs_default PARTITION OF audit_logs DEFAULT;"))
         
     yield
     
