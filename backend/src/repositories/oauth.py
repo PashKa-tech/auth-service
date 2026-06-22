@@ -20,7 +20,6 @@ class OAuthRepository(TenantScopedRepository):
             raise ValueError("User not found in this tenant context.")
 
         oauth_account = OAuthAccount(
-            tenant_id=self.tenant_id,
             user_id=user_id,
             provider=provider,
             provider_user_id=str(provider_user_id),

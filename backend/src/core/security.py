@@ -163,15 +163,15 @@ def verify_pkce(verifier: str, challenge: str, method: str = "S256") -> bool:
     """Verify code_verifier against code_challenge using challenge method."""
     import secrets
     if method == "plain":
-        return secrets.compare_digest(verifier, challenge)
+        return secrets.compare_digest(verifier.encode("utf-8", errors="replace"), challenge.encode("utf-8", errors="replace"))
     elif method == "S256":
         import hashlib
         import base64
         # Calculate SHA-256 hash
-        hashed = hashlib.sha256(verifier.encode("utf-8")).digest()
+        hashed = hashlib.sha256(verifier.encode("utf-8", errors="replace")).digest()
         # Base64url encode and remove padding
         calculated = base64.urlsafe_b64encode(hashed).decode("utf-8").replace("=", "")
-        return secrets.compare_digest(calculated, challenge)
+        return secrets.compare_digest(calculated.encode("utf-8", errors="replace"), challenge.encode("utf-8", errors="replace"))
     return False
 
 async def check_pwned_password(password: str) -> bool:
